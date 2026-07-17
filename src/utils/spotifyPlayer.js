@@ -3,7 +3,7 @@ function initializePlayer(token, { onReady, onStateChange, onError }) {
     const player = new window.Spotify.Player({
       name: 'ColdFusion Web Player',
       getOAuthToken: (cb) => { cb(token); },
-      volume: 0.5,
+      volume: 1.0,
     });
 
     player.addListener('ready', ({ device_id }) => {

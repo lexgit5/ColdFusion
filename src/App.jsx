@@ -6,6 +6,7 @@ import { initializePlayer } from './utils/spotifyPlayer'
 import { getUserLocation, getWeather } from './utils/weather'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
+import PlaybackControls from './components/PlaybackControls'
 
 import './App.css'
 
@@ -44,6 +45,7 @@ function App() {
   const [deviceId, setDeviceId] = useState(null); // this and the useEffect below start the web player
   const [player, setPlayer] = useState(null);
   const [currentTrack, setCurrentTrack] = useState(null); // holds the currently playing track's info for NowPlaying
+  const [isPaused, setIsPaused] = useState(true); // tracks play/pause state for PlaybackControls
 
   useEffect(() => {
     if (!accessToken) return;
@@ -58,6 +60,9 @@ function App() {
       },
       onStateChange: (state) => {
         console.log('Player state changed:', state);
+        if (state) {
+          setIsPaused(state.paused);
+        }
         if (state && state.track_window && state.track_window.current_track) {
           const track = state.track_window.current_track;
           setCurrentTrack({
@@ -116,7 +121,9 @@ function App() {
         <NowPlaying track={currentTrack} />
       </div>
 
-      <div>Playback Controls</div>
+      <div>
+        <PlaybackControls player={player} isPaused={isPaused} />
+      </div>
     </>
   )
 }
