@@ -9,9 +9,18 @@ function App() {
   const [geolocationStatus, setGeolocationStatus] = useState("Not connected");
   const [weatherStatus, setWeatherStatus] = useState("Not connected");
 
-  return (
+  return ( 
     <>
-    <div>Status Panel</div>
+    <div> 
+      <StatusPanel
+        //initializing the status panel on the main page.
+        spotifyAuthStatus={spotifyAuthStatus} 
+        spotifyWebplayStatus={spotifyWebplayStatus}
+        geolocationStatus={geolocationStatus}
+        weatherStatus={weatherStatus}
+      />
+    </div>
+
     <div>Spotify Authorization</div>
     <div>Weather Information</div>
     <div>Now Playing</div>

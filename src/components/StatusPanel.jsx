@@ -10,3 +10,7 @@ function StatusPanel ({spotifyAuthStatus, spotifyWebplayStatus, geolocationStatu
 }
 
 export default StatusPanel;
+
+
+//this is a status panel, kind of like a breaker box or task manager. the goal is to be able to see
+//exactly whats goin on with my connected services in order for ease of active troubleshooting.
