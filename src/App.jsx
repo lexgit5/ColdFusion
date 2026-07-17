@@ -3,6 +3,7 @@ import StatusPanel from './components/StatusPanel'
 import AuthButton from './components/AuthButton'
 import { exchangeCodeForToken } from './utils/spotifyAuth'
 import { initializePlayer } from './utils/spotifyPlayer'
+import { getUserLocation, getWeather } from './utils/weather'
 
 import './App.css'
 
@@ -61,6 +62,24 @@ function App() {
     });
   }, [accessToken]);
 
+const [weatherData, setWeatherData] = useState(null); //location permission and weather set up
+
+async function handleCheckWeather() {
+  try {
+    setGeolocationStatus("Requesting...");
+    const { latitude, longitude } = await getUserLocation();
+    setGeolocationStatus("Connected");
+
+    setWeatherStatus("Fetching...");
+    const weather = await getWeather(latitude, longitude);
+    setWeatherData(weather);
+    setWeatherStatus("Connected");
+  } catch (err) {
+    console.error(err);
+    setWeatherStatus(`Error: ${err.message}`);
+  }
+}
+
   return (
     <>
       <div>
@@ -75,8 +94,9 @@ function App() {
 
       <div>
         <AuthButton/> 
+        <button onClick={handleCheckWeather}>Check Weather</button>
       </div>
-
+  
       <div>Weather Information</div>
       <div>Now Playing</div>
       <div>Playback Controls</div>
