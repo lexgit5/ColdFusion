@@ -4,6 +4,7 @@ import AuthButton from './components/AuthButton'
 import { exchangeCodeForToken } from './utils/spotifyAuth'
 import { initializePlayer } from './utils/spotifyPlayer'
 import { getUserLocation, getWeather } from './utils/weather'
+import WeatherInfo from './components/WeatherInfo'
 
 import './App.css'
 
@@ -97,7 +98,9 @@ async function handleCheckWeather() {
         <button onClick={handleCheckWeather}>Check Weather</button>
       </div>
   
-      <div>Weather Information</div>
+      <div>
+        <WeatherInfo weatherData={weatherData} />
+      </div>
       <div>Now Playing</div>
       <div>Playback Controls</div>
     </>
