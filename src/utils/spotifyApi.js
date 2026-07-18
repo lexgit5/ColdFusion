@@ -48,9 +48,50 @@ async function getPlaylistTracks(playlistId, token) {
   const data = await response.json();
 
   return data.items
-  .map(({ item, track }) => item ?? track)
-  .filter(Boolean)
-  .map(track => track.uri);
+    .map(({ item, track }) => item ?? track)
+    .filter(Boolean)
+    .map((track) => ({
+      uri: track.uri,
+      name: track.name,
+      artist: track.artists?.map((a) => a.name).join(', ') ?? 'Unknown',
+    }));
 }
 
-export { playTrack, playPlaylist, getPlaylistTracks };
+// Adds a single track to the END of Spotify's actual playback queue on the given device.
+// This is what nextTrack()/previousTrack() actually skip through — playTrack alone doesn't queue anything.
+async function queueTrack(deviceId, token, trackUri) {
+  const url = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(trackUri)}&device_id=${deviceId}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok && response.status !== 204) {
+    const errorBody = await response.text();
+    throw new Error(`Queue request failed: ${response.status} ${errorBody}`);
+  }
+}
+
+// Explicitly turns shuffle on/off for the given device.
+// Needed because a leftover/default shuffle state will silently reorder your queued tracks
+// even though queueTrack adds them in a specific order.
+async function setShuffle(deviceId, token, shuffleState) {
+  const url = `https://api.spotify.com/v1/me/player/shuffle?state=${shuffleState}&device_id=${deviceId}`;
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok && response.status !== 204) {
+    const errorBody = await response.text();
+    throw new Error(`Shuffle request failed: ${response.status} ${errorBody}`);
+  }
+}
+
+export { playTrack, playPlaylist, getPlaylistTracks, queueTrack, setShuffle };

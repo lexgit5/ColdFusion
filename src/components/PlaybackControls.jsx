@@ -22,7 +22,7 @@ function PlaybackControls({ player, isPaused, hasTrack, onStart}) {
   return (
     <div>
       <button onClick={handlePrevious}>⏮ Previous</button>
-      <button onClick={handlePlayPause}>{isPaused ? '▶ Play' : '⏸ Pause'}</button>
+      <button onClick={handlePlayPause}>{!hasTrack ? '▶ Start' : isPaused ? '▶ Play' : '⏸ Pause'}</button>
       <button onClick={handleNext}>⏭ Next</button>
     </div>
   );

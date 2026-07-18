@@ -5,13 +5,18 @@ import { exchangeCodeForToken } from './utils/spotifyAuth'
 import { initializePlayer } from './utils/spotifyPlayer'
 import { getUserLocation, getWeather } from './utils/weather'
 import { getBlendWeights } from './utils/blend'
-import { buildQueue } from './utils/queueBuilder'
-import { playTrack } from './utils/spotifyApi'
+import { fetchTracklists, pickTrack } from './utils/queueBuilder'
+import { playTrack, queueTrack } from './utils/spotifyApi'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
 import PlaybackControls from './components/PlaybackControls'
+import BlendDebug from './components/BlendDebug'
 
 import './App.css'
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function App() {
   const [spotifyAuthStatus, setSpotifyAuthStatus] = useState("Not connected");
@@ -49,9 +54,11 @@ function App() {
   const [player, setPlayer] = useState(null);
   const [currentTrack, setCurrentTrack] = useState(null); // holds the currently playing track's info for NowPlaying
   const [isPaused, setIsPaused] = useState(true); // tracks play/pause state for PlaybackControls
+  const hasInitializedPlayer = useRef(false); // guards against StrictMode double-firing the player setup effect
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || hasInitializedPlayer.current) return;
+    hasInitializedPlayer.current = true;
 
     setSpotifyWebplayStatus("Loading...");
 
@@ -99,8 +106,12 @@ function App() {
     }
   }
 
+  const [blendWeights, setBlendWeights] = useState(null); // debug: current blend breakdown
+  const [queue, setQueue] = useState(null); // debug: tracks sent so far, in the order we sent them
+
   // Called by the Play button when nothing is currently playing yet.
-  // Builds a blended queue from current weather and starts playback with the first track.
+  // Rolls one track at a time, sends it to Spotify immediately, waits for it to settle,
+  // then displays it — no separate "plan" array, so the display can never drift from what was sent.
   async function handleStart() {
     if (!weatherData || !deviceId) {
       console.error('Missing weather data or device — check weather and ensure player is ready first');
@@ -108,13 +119,28 @@ function App() {
     }
 
     const weights = getBlendWeights(weatherData);
-    const queue = await buildQueue(weights, accessToken);
-    console.log('Built queue:', queue);
+    setBlendWeights(weights);
 
-    if (queue.length > 0) {
-      await playTrack(deviceId, accessToken, queue[0]);
-      // Note: this only plays the FIRST track of the queue for now —
-      // queueing up the rest for auto-advance is a separate piece we haven't built yet
+    const { categories, tracklists } = await fetchTracklists(weights, accessToken);
+
+    setQueue([]); // reset display queue
+
+    for (let i = 0; i < 10; i++) {
+      const track = pickTrack(weights, categories, tracklists);
+      if (!track) continue;
+
+      console.log(`Sending track ${i}:`, track.name, track.uri);
+
+      if (i === 0) {
+        await playTrack(deviceId, accessToken, track.uri);
+      } else {
+        await queueTrack(deviceId, accessToken, track.uri);
+        await wait(1000); // give Spotify's backend time to actually commit the addition before the next call
+      }
+
+      console.log(`Confirmed queued ${i}:`, track.name);
+
+      setQueue((prev) => [...prev, track]);
     }
   }
 
@@ -150,6 +176,10 @@ function App() {
           hasTrack={!!currentTrack}
           onStart={handleStart}
         />
+      </div>
+
+      <div>
+        <BlendDebug weights={blendWeights} queue={queue} />
       </div>
     </>
   )

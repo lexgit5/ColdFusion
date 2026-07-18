@@ -1,47 +1,54 @@
 import { getPlaylistTracks } from './spotifyApi';
 import { PLAYLIST_IDS } from './playlists';
 
-async function buildQueue(weights, token, queueLength = 20) {
+async function fetchTracklists(weights, token) {
   const categories = Object.keys(weights).filter((cat) => weights[cat] > 0);
-
-  // Fetch tracklists only for categories that actually have weight
   const tracklists = {};
   for (const category of categories) {
-  const playlistId = PLAYLIST_IDS[category];
-
-  console.log("Category:", category);
-  console.log("Playlist ID:", playlistId);
-
-  if (playlistId) {
-    tracklists[category] = await getPlaylistTracks(playlistId, token);
-  }
-}
-
-  const queue = [];
-  for (let i = 0; i < queueLength; i++) {
-    const category = pickWeightedCategory(weights, categories);
-    const tracks = tracklists[category];
-    if (tracks && tracks.length > 0) {
-      const randomTrack = tracks[Math.floor(Math.random() * tracks.length)];
-      queue.push(randomTrack);
+    const playlistId = PLAYLIST_IDS[category];
+    if (playlistId) {
+      tracklists[category] = await getPlaylistTracks(playlistId, token);
     }
   }
-
-  return queue;
+  return { categories, tracklists };
 }
 
 function pickWeightedCategory(weights, categories) {
   const roll = Math.random();
   let cumulative = 0;
-
   for (const category of categories) {
     cumulative += weights[category];
-    if (roll <= cumulative) {
-      return category;
-    }
+    if (roll <= cumulative) return category;
   }
-
-  return categories[categories.length - 1]; // fallback for floating point edge cases
+  return categories[categories.length - 1];
 }
 
-export { buildQueue };
+// Tracks which URIs have already been picked per category this session.
+// Resets for a category once every track in it has been used, so repeats
+// only happen after the whole playlist has cycled through.
+const usedTracks = {};
+
+function pickTrack(weights, categories, tracklists) {
+  const category = pickWeightedCategory(weights, categories);
+  const allTracks = tracklists[category];
+  if (!allTracks || allTracks.length === 0) return null;
+
+  if (!usedTracks[category]) {
+    usedTracks[category] = new Set();
+  }
+
+  // If every track in this category has been used, reset — start the cycle over
+  if (usedTracks[category].size >= allTracks.length) {
+    usedTracks[category].clear();
+  }
+
+  // Only pick from tracks not yet used this cycle
+  const available = allTracks.filter((t) => !usedTracks[category].has(t.uri));
+  const randomTrack = available[Math.floor(Math.random() * available.length)];
+
+  usedTracks[category].add(randomTrack.uri);
+
+  return { ...randomTrack, category };
+}
+
+export { fetchTracklists, pickTrack };
