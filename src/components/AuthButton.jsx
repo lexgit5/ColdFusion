@@ -2,7 +2,7 @@ import { generateCodeVerifier, generateCodeChallenge } from '../utils/pkce'
 
 const CLIENT_ID = 'c053af2ce092429e87d6ffd4c8f23ba1';
 const REDIRECT_URL = 'http://127.0.0.1:5173/callback';
-const SCOPES = 'streaming user-read-email user-read-private';
+const SCOPES = 'streaming user-read-email user-read-private playlist-read-private playlist-read-collaborative';
 
 function AuthButton() {
   async function handleLogin() {

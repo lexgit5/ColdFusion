@@ -1,10 +1,14 @@
-function PlaybackControls({ player, isPaused }) {
+function PlaybackControls({ player, isPaused, hasTrack, onStart}) {
   if (!player) {
     return <div>Playback Controls: Player not ready</div>;
   }
 
   function handlePlayPause() {
-    player.togglePlay();
+    if (!hasTrack) {
+      onStart();
+    } else {
+      player.togglePlay();
+    }
   }
 
   function handleNext() {

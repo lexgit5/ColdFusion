@@ -4,6 +4,9 @@ import AuthButton from './components/AuthButton'
 import { exchangeCodeForToken } from './utils/spotifyAuth'
 import { initializePlayer } from './utils/spotifyPlayer'
 import { getUserLocation, getWeather } from './utils/weather'
+import { getBlendWeights } from './utils/blend'
+import { buildQueue } from './utils/queueBuilder'
+import { playTrack } from './utils/spotifyApi'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
 import PlaybackControls from './components/PlaybackControls'
@@ -96,6 +99,25 @@ function App() {
     }
   }
 
+  // Called by the Play button when nothing is currently playing yet.
+  // Builds a blended queue from current weather and starts playback with the first track.
+  async function handleStart() {
+    if (!weatherData || !deviceId) {
+      console.error('Missing weather data or device — check weather and ensure player is ready first');
+      return;
+    }
+
+    const weights = getBlendWeights(weatherData);
+    const queue = await buildQueue(weights, accessToken);
+    console.log('Built queue:', queue);
+
+    if (queue.length > 0) {
+      await playTrack(deviceId, accessToken, queue[0]);
+      // Note: this only plays the FIRST track of the queue for now —
+      // queueing up the rest for auto-advance is a separate piece we haven't built yet
+    }
+  }
+
   return (
     <>
       <div>
@@ -122,7 +144,12 @@ function App() {
       </div>
 
       <div>
-        <PlaybackControls player={player} isPaused={isPaused} />
+        <PlaybackControls
+          player={player}
+          isPaused={isPaused}
+          hasTrack={!!currentTrack}
+          onStart={handleStart}
+        />
       </div>
     </>
   )
