@@ -1,15 +1,33 @@
-function NowPlaying({ track }) {
-  if (!track) {
-    return <div>Now Playing: Nothing yet</div>;
+function PlaybackControls({ player, isPaused, hasTrack, onStart }) {
+  if (!player) {
+    return null;
+  }
+
+  function handlePlayPause() {
+    if (!hasTrack) {
+      onStart();
+    } else {
+      player.togglePlay();
+    }
+  }
+
+  function handleNext() {
+    player.nextTrack();
+  }
+
+  function handlePrevious() {
+    player.previousTrack();
   }
 
   return (
-    <div>
-      {track.albumArt && <img src={track.albumArt} alt={track.name} width={80} />}
-      <p>{track.name}</p>
-      <p>{track.artist}</p>
+    <div className="transport">
+      <button onClick={handlePrevious} aria-label="Previous track">⏮</button>
+      <button onClick={handlePlayPause} className="play-pause" aria-label={!hasTrack ? 'Start' : isPaused ? 'Play' : 'Pause'}>
+        {!hasTrack ? '▶' : isPaused ? '▶' : '⏸'}
+      </button>
+      <button onClick={handleNext} aria-label="Next track">⏭</button>
     </div>
   );
 }
 
-export default NowPlaying;
+export default PlaybackControls;

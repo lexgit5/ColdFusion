@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef } from 'react'
-import StatusPanel from './components/StatusPanel'
 import AuthButton from './components/AuthButton'
 import { exchangeCodeForToken } from './utils/spotifyAuth'
 import { initializePlayer } from './utils/spotifyPlayer'
@@ -7,10 +6,11 @@ import { getUserLocation, getWeather } from './utils/weather'
 import { getBlendWeights } from './utils/blend'
 import { fetchTracklists, pickTrack } from './utils/queueBuilder'
 import { playTrack, queueTrack } from './utils/spotifyApi'
+import { getSkyColor } from './utils/skyColor'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
 import PlaybackControls from './components/PlaybackControls'
-import BlendDebug from './components/BlendDebug'
+import BlendBar from './components/BlendBar'
 
 import './App.css'
 
@@ -24,8 +24,8 @@ function App() {
   const [geolocationStatus, setGeolocationStatus] = useState("Not connected");
   const [weatherStatus, setWeatherStatus] = useState("Not connected");
 
-  const [accessToken, setAccessToken] = useState(null); // this and the useEffect below handle Spotify auth
-  const hasExchangedCode = useRef(false); // guards against StrictMode double-firing the effect
+  const [accessToken, setAccessToken] = useState(null);
+  const hasExchangedCode = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -39,8 +39,6 @@ function App() {
         .then((token) => {
           setAccessToken(token);
           setSpotifyAuthStatus("Connected");
-
-          // Clean the code out of the URL so it's not sitting there / re-triggered on refresh
           window.history.replaceState({}, document.title, "/");
         })
         .catch((err) => {
@@ -50,11 +48,11 @@ function App() {
     }
   }, []);
 
-  const [deviceId, setDeviceId] = useState(null); // this and the useEffect below start the web player
+  const [deviceId, setDeviceId] = useState(null);
   const [player, setPlayer] = useState(null);
-  const [currentTrack, setCurrentTrack] = useState(null); // holds the currently playing track's info for NowPlaying
-  const [isPaused, setIsPaused] = useState(true); // tracks play/pause state for PlaybackControls
-  const hasInitializedPlayer = useRef(false); // guards against StrictMode double-firing the player setup effect
+  const [currentTrack, setCurrentTrack] = useState(null);
+  const [isPaused, setIsPaused] = useState(true);
+  const hasInitializedPlayer = useRef(false);
 
   useEffect(() => {
     if (!accessToken || hasInitializedPlayer.current) return;
@@ -69,7 +67,6 @@ function App() {
         setSpotifyWebplayStatus("Ready");
       },
       onStateChange: (state) => {
-        console.log('Player state changed:', state);
         if (state) {
           setIsPaused(state.paused);
         }
@@ -88,7 +85,7 @@ function App() {
     });
   }, [accessToken]);
 
-  const [weatherData, setWeatherData] = useState(null); // location permission and weather set up
+  const [weatherData, setWeatherData] = useState(null);
 
   async function handleCheckWeather() {
     try {
@@ -106,12 +103,8 @@ function App() {
     }
   }
 
-  const [blendWeights, setBlendWeights] = useState(null); // debug: current blend breakdown
-  const [queue, setQueue] = useState(null); // debug: tracks sent so far, in the order we sent them
+  const [blendWeights, setBlendWeights] = useState(null);
 
-  // Called by the Play button when nothing is currently playing yet.
-  // Rolls one track at a time, sends it to Spotify immediately, waits for it to settle,
-  // then displays it — no separate "plan" array, so the display can never drift from what was sent.
   async function handleStart() {
     if (!weatherData || !deviceId) {
       console.error('Missing weather data or device — check weather and ensure player is ready first');
@@ -123,65 +116,54 @@ function App() {
 
     const { categories, tracklists } = await fetchTracklists(weights, accessToken);
 
-    setQueue([]); // reset display queue
-
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       const track = pickTrack(weights, categories, tracklists);
       if (!track) continue;
-
-      console.log(`Sending track ${i}:`, track.name, track.uri);
 
       if (i === 0) {
         await playTrack(deviceId, accessToken, track.uri);
       } else {
         await queueTrack(deviceId, accessToken, track.uri);
-        await wait(1000); // give Spotify's backend time to actually commit the addition before the next call
+        await wait(500);
       }
-
-      console.log(`Confirmed queued ${i}:`, track.name);
-
-      setQueue((prev) => [...prev, track]);
     }
   }
 
+  // Setup is "done" once both auth and weather are connected — this hides the setup buttons
+  const setupComplete = spotifyAuthStatus === "Connected" && weatherStatus === "Connected";
+
+  // Live sky background color, derived from the current blend weights
+  const skyColor = getSkyColor(blendWeights);
+
   return (
-    <>
-      <div>
-        <StatusPanel
-          // initializing the status panel on the main page.
-          spotifyAuthStatus={spotifyAuthStatus}
-          spotifyWebplayStatus={spotifyWebplayStatus}
-          geolocationStatus={geolocationStatus}
-          weatherStatus={weatherStatus}
-        />
-      </div>
+    <div className="sky-background" style={{ '--sky-color': skyColor, backgroundColor: skyColor }}>
+      <div className="panel">
+        <div className="panel-header">
+          <span className="app-name">ColdFusion</span>
+          <span className={`connection-dot ${setupComplete ? 'connected' : ''}`} />
+        </div>
 
-      <div>
-        <AuthButton />
-        <button onClick={handleCheckWeather}>Check Weather</button>
-      </div>
-
-      <div>
         <WeatherInfo weatherData={weatherData} />
-      </div>
 
-      <div>
+        <BlendBar weights={blendWeights} />
+
         <NowPlaying track={currentTrack} />
-      </div>
 
-      <div>
         <PlaybackControls
           player={player}
           isPaused={isPaused}
           hasTrack={!!currentTrack}
           onStart={handleStart}
         />
-      </div>
 
-      <div>
-        <BlendDebug weights={blendWeights} queue={queue} />
+        <div className={`setup-actions ${setupComplete ? 'hidden' : ''}`}>
+          <AuthButton />
+          <button className="setup-button" onClick={handleCheckWeather}>
+            Check Weather
+          </button>
+        </div>
       </div>
-    </>
+    </div>
   )
 }
 

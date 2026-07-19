@@ -35,14 +35,18 @@ function getConditionLabel(code, isDay) {
 
 function WeatherInfo({ weatherData }) {
   if (!weatherData) {
-    return <div>Weather Information: No data yet</div>;
+    return (
+      <div className="weather-headline">
+        <span className="no-data">Check the weather to get started</span>
+      </div>
+    );
   }
 
   const conditionLabel = getConditionLabel(weatherData.weather_code, weatherData.is_day);
   const temp = Math.round(weatherData.temperature_2m);
 
   return (
-    <div>
+    <div className="weather-headline">
       {conditionLabel}, {temp}°
     </div>
   );
