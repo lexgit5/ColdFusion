@@ -144,18 +144,19 @@ function App() {
 
   return (
     <div className="sky-background" style={{ '--sky-color': skyColor, backgroundColor: skyColor }}>
-      <div className="page">
-        <div className="page-header">ColdFusion</div>
+      <div className="page-header">ColdFusion</div>
 
+      <div className="page">
         <WeatherInfo weatherData={weatherData} started={hasStarted} />
 
         <div className="panel">
           <WeatherDials metrics={dialMetrics} started={hasStarted} />
-
-          <NowPlaying track={currentTrack} />
         </div>
 
         <div className="panel">
+          
+          <NowPlaying track={currentTrack} />
+          
           <PlaybackControls
             player={player}
             isPaused={isPaused}

@@ -47,6 +47,9 @@ body {
 }
 
 .page-header {
+  position: fixed;
+  top: 24px;
+  left: 24px;
   font-family: var(--font-body);
   font-weight: 600;
   font-size: 0.95rem;
@@ -63,6 +66,9 @@ body {
   padding: 24px;
   margin-top: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  
 }
 
 /* --- Weather headline --- */
@@ -91,9 +97,9 @@ body {
 .weather-controls {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 12px;
-  margin-bottom: 24px;
+
 }
 
 .control {
@@ -167,6 +173,7 @@ body {
   background: var(--hairline);
   position: relative;
   overflow: visible; /* the cap needs to hang off both edges of the 8px slot */
+  transition: background 2.5s ease;
 }
 
 .riser-fill {
@@ -228,6 +235,7 @@ body {
   font-size: 0.78rem;
   color: var(--text-primary);
   margin-top: 2px;
+  margin-bottom: -8px;
   opacity: 0;
   transition: opacity 2.5s ease;
 }
@@ -236,27 +244,29 @@ body {
   opacity: 1;
 }
 
-/* --- Now Playing card --- */
+/* --- Now Playing row: sits directly on the panel, no card-within-a-card ---
+   Just a thin hairline divider underneath to separate it from the transport
+   row below, so the whole thing (art + track info + controls) reads as one
+   card, like the drawing. */
 .now-playing {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 14px;
-  padding: 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
+  padding-bottom: 20px;
   margin-bottom: 20px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .now-playing img {
-  width: 56px;
-  height: 56px;
+  aspect-ratio: 1/1;
   border-radius: 8px;
   object-fit: cover;
   flex-shrink: 0;
 }
 
 .now-playing-info {
+  text-align: left;
   min-width: 0; /* allows text truncation to work inside flex */
 }
 
@@ -290,7 +300,6 @@ body {
   justify-content: center;
   align-items: center;
   gap: 28px;
-  margin-bottom: 20px;
 }
 
 .transport button {
@@ -319,6 +328,7 @@ body {
   display: flex;
   justify-content: center;
   gap: 12px;
+  margin-top: 20px;
   transition: opacity 0.6s ease, max-height 0.6s ease, margin 0.6s ease;
   overflow: hidden;
 }

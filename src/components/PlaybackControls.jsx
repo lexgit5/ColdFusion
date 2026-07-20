@@ -1,6 +1,6 @@
-function PlaybackControls({ player, isPaused, hasTrack, onStart}) {
+function PlaybackControls({ player, isPaused, hasTrack, onStart }) {
   if (!player) {
-    return <div>Playback Controls: Player not ready</div>;
+    return null;
   }
 
   function handlePlayPause() {
@@ -20,10 +20,12 @@ function PlaybackControls({ player, isPaused, hasTrack, onStart}) {
   }
 
   return (
-    <div>
-      <button onClick={handlePrevious}>⏮ Previous</button>
-      <button onClick={handlePlayPause}>{!hasTrack ? '▶ Start' : isPaused ? '▶ Play' : '⏸ Pause'}</button>
-      <button onClick={handleNext}>⏭ Next</button>
+    <div className="transport">
+      <button onClick={handlePrevious} aria-label="Previous track">⏮</button>
+      <button onClick={handlePlayPause} className="play-pause" aria-label={!hasTrack ? 'Start' : isPaused ? 'Play' : 'Pause'}>
+        {!hasTrack ? '▶' : isPaused ? '▶' : '⏸'}
+      </button>
+      <button onClick={handleNext} aria-label="Next track">⏭</button>
     </div>
   );
 }
