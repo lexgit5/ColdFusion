@@ -65,4 +65,4 @@ function getSkyColor(weights) {
   return rgbToHex(muted);
 }
 
-export { getSkyColor, CATEGORY_COLORS };
+export { getSkyColor, CATEGORY_COLORS, hexToRgb, rgbToHex, mix };

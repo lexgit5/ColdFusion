@@ -43,4 +43,44 @@ function getBlendWeights(weatherData) {
   return weights;
 }
 
-export { getBlendWeights };
+// Computes the 4 raw values shown on the dial/riser controls, plus a color for each,
+// mixed from the same category colors used elsewhere (rain/snow blend for precipitation,
+// mist for cloud cover, clearDayCold/clearDayHot for temperature, night/day for brightness).
+import { CATEGORY_COLORS, hexToRgb, rgbToHex, mix } from './skyColor';
+
+function getDialMetrics(weatherData) {
+  const { precipitation, cloud_cover, is_day, temperature_2m } = weatherData;
+
+  // --- Precipitation dial ---
+  const precipitationIntensity = Math.min(precipitation / 5, 1); // same scale as blend.js
+  const snowLean = temperature_2m < 32 ? 1 : temperature_2m > 40 ? 0 : (40 - temperature_2m) / 8;
+  const precipitationColor = rgbToHex(
+    mix(hexToRgb(CATEGORY_COLORS.rain), hexToRgb(CATEGORY_COLORS.snow), snowLean)
+  );
+
+  // --- Cloud cover dial ---
+  const cloudCoverIntensity = cloud_cover / 100;
+  const cloudCoverColor = CATEGORY_COLORS.mist;
+
+// --- Temperature riser --- normalized across a comfortable visual range, -10°F to 110°F
+const temperatureLevel = Math.max(0, Math.min(1, (temperature_2m - (-10)) / 120));
+  const temperatureColor = rgbToHex(
+    mix(hexToRgb(CATEGORY_COLORS.clearDayCold), hexToRgb(CATEGORY_COLORS.clearDayHot), temperatureLevel)
+  );
+
+  // --- Brightness riser --- combines day/night with how overcast it is;
+  // a clear night still reads as dark, an overcast day reads as dim rather than bright
+  const brightnessLevel = is_day ? Math.max(0, 1 - cloud_cover / 100) : 0.05;
+  const brightnessColor = rgbToHex(
+    mix(hexToRgb(CATEGORY_COLORS.clearNightCold), hexToRgb(CATEGORY_COLORS.clearDayHot), brightnessLevel)
+  );
+
+  return {
+    precipitation: { value: precipitationIntensity, color: precipitationColor, raw: precipitation },
+    cloudCover: { value: cloudCoverIntensity, color: cloudCoverColor, raw: cloud_cover },
+    temperature: { value: temperatureLevel, color: temperatureColor, raw: temperature_2m },
+    brightness: { value: brightnessLevel, color: brightnessColor, raw: null },
+  };
+}
+
+export { getBlendWeights, getDialMetrics };

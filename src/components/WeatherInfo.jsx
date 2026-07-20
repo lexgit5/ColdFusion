@@ -1,3 +1,5 @@
+import { useState, useEffect, useRef } from 'react';
+
 function getConditionLabel(code, isDay) {
   const map = {
     0: isDay ? "Sunny" : "Clear",
@@ -33,10 +35,25 @@ function getConditionLabel(code, isDay) {
   return map[code] || "Unknown";
 }
 
-function WeatherInfo({ weatherData }) {
+function WeatherInfo({ weatherData, started }) {
+  const [revealed, setRevealed] = useState(false);
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (started && !startedRef.current) {
+      startedRef.current = true;
+      // Same double-rAF pattern as WeatherDials: lets the browser commit the
+      // opacity:0 state to the DOM first, so the fade to 1 actually transitions
+      // instead of the two updates getting batched into an instant jump.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setRevealed(true));
+      });
+    }
+  }, [started]);
+
   if (!weatherData) {
     return (
-      <div className="weather-headline">
+      <div className={`weather-headline ${revealed ? 'revealed' : ''}`}>
         <span className="no-data">Check the weather to get started</span>
       </div>
     );
@@ -46,8 +63,8 @@ function WeatherInfo({ weatherData }) {
   const temp = Math.round(weatherData.temperature_2m);
 
   return (
-    <div className="weather-headline">
-      {conditionLabel}, {temp}°
+    <div className={`weather-headline ${revealed ? 'revealed' : ''}`}>
+      {conditionLabel}
     </div>
   );
 }

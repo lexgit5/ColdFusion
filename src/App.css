@@ -35,26 +35,18 @@ body {
   transition: background-color 2.5s ease;
 }
 
-.panel {
+/* Vertical stack holding the header, weather headline (both sitting directly
+   on the background) and the panel card underneath them */
+.page {
   width: 100%;
   max-width: 520px;
-  background: var(--panel-surface);
-  border: 1px solid var(--hairline);
-  border-radius: 16px;
-  padding: 24px;
-  margin-top: 40px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
-}
-
-/* --- Header row: app name + connection dot --- */
-.panel-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 40px;
 }
 
-.app-name {
+.page-header {
   font-family: var(--font-body);
   font-weight: 600;
   font-size: 0.95rem;
@@ -63,17 +55,14 @@ body {
   color: var(--text-secondary);
 }
 
-.connection-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  transition: background 0.4s ease;
-}
-
-.connection-dot.connected {
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
+.panel {
+  width: 100%;
+  background: var(--panel-surface);
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
 }
 
 /* --- Weather headline --- */
@@ -82,7 +71,13 @@ body {
   font-size: 2.4rem;
   font-weight: 600;
   line-height: 1.1;
-  margin: 0 0 20px 0;
+  margin: 0;
+  opacity: 0;
+  transition: opacity 2.5s ease;
+}
+
+.weather-headline.revealed {
+  opacity: 1;
 }
 
 .weather-headline .no-data {
@@ -92,43 +87,153 @@ body {
   color: var(--text-secondary);
 }
 
-/* --- Blend bar (signature element) --- */
-.blend-bar {
+/* --- Weather controls: dials + risers (signature element) --- */
+.weather-controls {
   display: flex;
-  width: 100%;
-  height: 10px;
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--hairline);
-  margin-bottom: 8px;
-}
-
-.blend-bar-segment {
-  height: 100%;
-  transition: width 2.5s ease;
-}
-
-.blend-legend {
-  display: flex;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
   gap: 12px;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--text-secondary);
   margin-bottom: 24px;
 }
 
-.blend-legend-item {
+.control {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
+  flex: 1;
 }
 
-.blend-legend-swatch {
+/* Dials: volume-knob style, 270° conic-gradient sweep with a punched-out center.
+   The ring itself is the colour-changing "track" (same role as .riser-fill);
+   .dial-hole is the tactile cap sitting in the middle of it (same treatment
+   as .riser-cap), and .dial-pointer is that cap's grip line, rotating instead
+   of sliding. */
+.dial {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  position: relative;
+  transition: background 2.5s ease;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.25),
+    inset 0 1px 3px rgba(0, 0, 0, 0.35); /* recesses the ring, like the riser track */
+}
+
+.dial-hole {
+  --hole-size: 30px; /* size of the cap itself */
+  --gap-size: 3px;   /* space between the cap and the visible ring */
+  position: absolute;
+  top: calc((56px - var(--hole-size)) / 2);
+  left: calc((56px - var(--hole-size)) / 2);
+  width: var(--hole-size);
+  height: var(--hole-size);
+  border-radius: 50%;
+  background: linear-gradient(180deg, #EEF2F6 0%, #D2D8E0 45%, #A6AEB8 47%, #C7CDD5 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 0 0 1px rgba(0, 0, 0, 0.3),
+    0 0 0 calc(var(--gap-size) + 1px) var(--panel-surface),
+    0 3px 6px calc(var(--gap-size) + 1px) rgba(0, 0, 0, 0.45);
+}
+
+.dial-pointer {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: 2px;
+  height: calc(var(--hole-size) / 2 - 4px);
+  margin-left: -1px;
+  border-radius: 1px;
+  background: rgba(0, 0, 0, 0.4); /* dark groove line, matches .riser-cap::before */
+  transform-origin: 50% calc(var(--hole-size) / 2 - 4px); /* always pivots at the hole's center */
+  transition: transform 2.5s ease;
+}
+
+/* Risers: vertical fader, fills from the bottom, with a tactile cap riding on top
+   (like the CH-1/2/3 faders on a DJ mixer). Structure expected in markup:
+
+   <div class="riser">
+     <div class="riser-fill" style="height: 62%; background: #E8A34C;"></div>
+     <div class="riser-cap"  style="bottom: 62%;"></div>
+   </div>
+
+   .riser-fill is bottom-anchored and grows upward with the track's fill
+   level (JS drives `height` and `background`). .riser-cap rides on top at
+   the same value. */
+.riser {
   width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  display: inline-block;
+  height: 56px;
+  border-radius: 4px;
+  background: var(--hairline);
+  position: relative;
+  overflow: visible; /* the cap needs to hang off both edges of the 8px slot */
+}
+
+.riser-fill {
+  position: absolute;
+  left: 1px;
+  bottom: 0;
+  width: calc(100% - 2px);
+  border-radius: 4px;
+  transition: height 2.5s ease, background 2.5s ease;
+  z-index: 1;
+}
+
+.riser-cap {
+  position: absolute;
+  left: 50%;
+  width: 22px;
+  height: 13px;
+  margin-left: -11px; /* centers the 22px cap over the 8px track */
+  border-radius: 3px;
+  background: linear-gradient(180deg, #EEF2F6 0%, #D2D8E0 45%, #A6AEB8 47%, #C7CDD5 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 3px 6px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(0, 0, 0, 0.3);
+  transition: bottom 2.5s ease;
+  z-index: 2;
+}
+
+/* grip groove across the middle of the cap, like the moulded line on a real fader handle */
+.riser-cap::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  right: 3px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 1px;
+}
+
+.control-label {
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  text-align: center;
+  line-height: 1.2;
+  opacity: 0;
+  transition: opacity 2.5s ease;
+}
+
+.control-label.revealed {
+  opacity: 1;
+}
+
+.control-value {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 2.5s ease;
+}
+
+.control-value.revealed {
+  opacity: 1;
 }
 
 /* --- Now Playing card --- */
@@ -245,9 +350,12 @@ body {
 
 /* --- Responsive: tighten padding on very small screens --- */
 @media (max-width: 400px) {
+  .page {
+    margin-top: 20px;
+  }
+
   .panel {
     padding: 18px;
-    margin-top: 20px;
   }
 
   .weather-headline {

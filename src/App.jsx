@@ -3,14 +3,14 @@ import AuthButton from './components/AuthButton'
 import { exchangeCodeForToken } from './utils/spotifyAuth'
 import { initializePlayer } from './utils/spotifyPlayer'
 import { getUserLocation, getWeather } from './utils/weather'
-import { getBlendWeights } from './utils/blend'
+import { getBlendWeights, getDialMetrics } from './utils/blend'
 import { fetchTracklists, pickTrack } from './utils/queueBuilder'
 import { playTrack, queueTrack } from './utils/spotifyApi'
 import { getSkyColor } from './utils/skyColor'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
 import PlaybackControls from './components/PlaybackControls'
-import BlendBar from './components/BlendBar'
+import WeatherDials from './components/WeatherDials'
 
 import './App.css'
 
@@ -104,12 +104,15 @@ function App() {
   }
 
   const [blendWeights, setBlendWeights] = useState(null);
+  const [hasStarted, setHasStarted] = useState(false);
 
   async function handleStart() {
     if (!weatherData || !deviceId) {
       console.error('Missing weather data or device — check weather and ensure player is ready first');
       return;
     }
+
+    setHasStarted(true); // triggers the headline, dials, and risers to fade/animate in
 
     const weights = getBlendWeights(weatherData);
     setBlendWeights(weights);
@@ -135,32 +138,37 @@ function App() {
   // Live sky background color, derived from the current blend weights
   const skyColor = getSkyColor(blendWeights);
 
+  // Dial/riser metrics, computed directly from weather data — updates as soon as
+  // weather is checked, independent of whether a queue has been built yet
+  const dialMetrics = weatherData ? getDialMetrics(weatherData) : null;
+
   return (
     <div className="sky-background" style={{ '--sky-color': skyColor, backgroundColor: skyColor }}>
-      <div className="panel">
-        <div className="panel-header">
-          <span className="app-name">ColdFusion</span>
-          <span className={`connection-dot ${setupComplete ? 'connected' : ''}`} />
+      <div className="page">
+        <div className="page-header">ColdFusion</div>
+
+        <WeatherInfo weatherData={weatherData} started={hasStarted} />
+
+        <div className="panel">
+          <WeatherDials metrics={dialMetrics} started={hasStarted} />
+
+          <NowPlaying track={currentTrack} />
         </div>
 
-        <WeatherInfo weatherData={weatherData} />
+        <div className="panel">
+          <PlaybackControls
+            player={player}
+            isPaused={isPaused}
+            hasTrack={!!currentTrack}
+            onStart={handleStart}
+          />
 
-        <BlendBar weights={blendWeights} />
-
-        <NowPlaying track={currentTrack} />
-
-        <PlaybackControls
-          player={player}
-          isPaused={isPaused}
-          hasTrack={!!currentTrack}
-          onStart={handleStart}
-        />
-
-        <div className={`setup-actions ${setupComplete ? 'hidden' : ''}`}>
-          <AuthButton />
-          <button className="setup-button" onClick={handleCheckWeather}>
-            Check Weather
-          </button>
+          <div className={`setup-actions ${setupComplete ? 'hidden' : ''}`}>
+            <AuthButton />
+            <button className="setup-button" onClick={handleCheckWeather}>
+              Check Weather
+            </button>
+          </div>
         </div>
       </div>
     </div>
