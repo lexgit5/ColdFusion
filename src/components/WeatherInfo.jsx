@@ -35,6 +35,16 @@ function getConditionLabel(code, isDay) {
   return map[code] || "Unknown";
 }
 
+// Short labels ("Sunny") read better big; long ones ("Severe Thunderstorm")
+// need to come down a size (and are allowed to wrap) or they'd force a
+// scroll on shorter viewports. Tune the two thresholds if new condition
+// strings get added and a label lands in the wrong tier.
+function getSizeClass(label) {
+  if (label.length <= 6) return 'weather-headline--lg';
+  if (label.length <= 12) return 'weather-headline--md';
+  return 'weather-headline--sm';
+}
+
 function WeatherInfo({ weatherData, started }) {
   const [revealed, setRevealed] = useState(false);
   const startedRef = useRef(false);
@@ -61,9 +71,10 @@ function WeatherInfo({ weatherData, started }) {
 
   const conditionLabel = getConditionLabel(weatherData.weather_code, weatherData.is_day);
   const temp = Math.round(weatherData.temperature_2m);
+  const sizeClass = getSizeClass(conditionLabel);
 
   return (
-    <div className={`weather-headline ${revealed ? 'revealed' : ''}`}>
+    <div className={`weather-headline ${sizeClass} ${revealed ? 'revealed' : ''}`}>
       {conditionLabel}
     </div>
   );

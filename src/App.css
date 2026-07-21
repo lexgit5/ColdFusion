@@ -30,7 +30,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 24px 16px;
+  padding: 20px 16px; /* was 24px — the 4px freed off top and bottom now lives in .weather-headline's margin instead */
   background-color: var(--sky-color);
   transition: background-color 2.5s ease;
 }
@@ -43,13 +43,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 40px;
 }
 
 .page-header {
+  display: none; /* TODO: fade out on `started` instead, alongside the rest of the reveal */
   position: fixed;
-  top: 24px;
-  left: 24px;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   font-family: var(--font-body);
   font-weight: 600;
   font-size: 0.95rem;
@@ -74,12 +75,31 @@ body {
 /* --- Weather headline --- */
 .weather-headline {
   font-family: var(--font-display);
-  font-size: 2.4rem;
   font-weight: 600;
   line-height: 1.1;
-  margin: 0;
+  margin: 4px 0; /* was 0 — the space freed from sky-background's padding */
   opacity: 0;
-  transition: opacity 2.5s ease;
+  transition: opacity 2.5s ease, font-size 0.3s ease, margin-bottom 0.3s ease;
+}
+
+/* Paired with getSizeClass() in WeatherInfo.jsx — shorter labels get the
+   big size; longer ones (allowed to wrap) step down in both font-size and
+   the space left below them, so a wrapped 2-line headline doesn't add
+   enough height to force a scroll. Each margin-bottom here is relative to
+   the base's 4px, not to 0 — e.g. --sm's -4px means "0px actual", same
+   relative step-down as before this was rebased. */
+.weather-headline--lg {
+  font-size: 2.8rem;
+}
+
+.weather-headline--md {
+  font-size: 2.2rem;
+  margin-bottom: 0;
+}
+
+.weather-headline--sm {
+  font-size: 1.8rem;
+  margin-bottom: -4px;
 }
 
 .weather-headline.revealed {
@@ -248,26 +268,44 @@ body {
    Just a thin hairline divider underneath to separate it from the transport
    row below, so the whole thing (art + track info + controls) reads as one
    card, like the drawing. */
+/* --- Now Playing: vertical stack (art, then title/artist, then progress) ---
+   The image scales with the panel's width since .now-playing is a direct
+   child of .panel — 100% resolves against the panel's content box, so it
+   naturally respects the existing padding without extra math. The progress
+   bar takes over the divider role that a plain hairline used to play. */
 .now-playing {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 14px;
-  padding-bottom: 20px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 16px;
 }
 
 .now-playing img {
-  aspect-ratio: 1/1;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   border-radius: 8px;
   object-fit: cover;
-  flex-shrink: 0;
 }
 
 .now-playing-info {
-  text-align: left;
+  text-align: center;
   min-width: 0; /* allows text truncation to work inside flex */
+}
+
+.progress-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.25s linear; /* ticks every 250ms, so this should track closely rather than lag behind like the 2.5s weather transitions */
 }
 
 .now-playing-track {
@@ -360,15 +398,7 @@ body {
 
 /* --- Responsive: tighten padding on very small screens --- */
 @media (max-width: 400px) {
-  .page {
-    margin-top: 20px;
-  }
-
   .panel {
     padding: 18px;
-  }
-
-  .weather-headline {
-    font-size: 1.9rem;
   }
 }

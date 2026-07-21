@@ -54,6 +54,27 @@ function App() {
   const [isPaused, setIsPaused] = useState(true);
   const hasInitializedPlayer = useRef(false);
 
+  // Playback progress. The SDK only hands us `position` at the moment of a
+  // state-changed event (track change, play/pause, seek) — it doesn't push
+  // updates every second on its own. progressRef holds the last known
+  // position/duration plus when we got it; a separate interval below
+  // estimates "now" by extrapolating from that snapshot while playing.
+  const [progress, setProgress] = useState({ position: 0, duration: 0 });
+  const progressRef = useRef({ position: 0, duration: 0, updatedAt: Date.now(), paused: true });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const { position, duration, updatedAt, paused } = progressRef.current;
+      if (paused || !duration) return;
+
+      const elapsed = Date.now() - updatedAt;
+      const estimated = Math.min(duration, position + elapsed);
+      setProgress({ position: estimated, duration });
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     if (!accessToken || hasInitializedPlayer.current) return;
     hasInitializedPlayer.current = true;
@@ -69,6 +90,14 @@ function App() {
       onStateChange: (state) => {
         if (state) {
           setIsPaused(state.paused);
+
+          progressRef.current = {
+            position: state.position,
+            duration: state.duration,
+            updatedAt: Date.now(),
+            paused: state.paused,
+          };
+          setProgress({ position: state.position, duration: state.duration });
         }
         if (state && state.track_window && state.track_window.current_track) {
           const track = state.track_window.current_track;
@@ -154,9 +183,9 @@ function App() {
         </div>
 
         <div className="panel">
-          
-          <NowPlaying track={currentTrack} />
-          
+
+          <NowPlaying track={currentTrack} progress={progress} />
+
           <PlaybackControls
             player={player}
             isPaused={isPaused}
