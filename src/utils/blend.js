@@ -46,7 +46,8 @@ function getBlendWeights(weatherData) {
 // Computes the 4 raw values shown on the dial/riser controls, plus a color for each,
 // mixed from the same category colors used elsewhere (rain/snow blend for precipitation,
 // mist for cloud cover, clearDayCold/clearDayHot for temperature, night/day for brightness).
-import { CATEGORY_COLORS, hexToRgb, rgbToHex, mix } from './skyColor';
+import { CATEGORY_COLORS } from './colors';
+import { hexToRgb, rgbToHex, mix } from './skyColor';
 
 function getDialMetrics(weatherData) {
   const { precipitation, cloud_cover, is_day, temperature_2m } = weatherData;
@@ -62,8 +63,10 @@ function getDialMetrics(weatherData) {
   const cloudCoverIntensity = cloud_cover / 100;
   const cloudCoverColor = CATEGORY_COLORS.mist;
 
-// --- Temperature riser --- normalized across a comfortable visual range, -10°F to 110°F
-const temperatureLevel = Math.max(0, Math.min(1, (temperature_2m - (-10)) / 120));
+  // --- Temperature riser --- normalized across a comfortable visual range, -10°F to 110°F
+  const TEMP_MIN = -10;
+  const TEMP_MAX = 110;
+  const temperatureLevel = Math.max(0, Math.min(1, (temperature_2m - TEMP_MIN) / (TEMP_MAX - TEMP_MIN)));
   const temperatureColor = rgbToHex(
     mix(hexToRgb(CATEGORY_COLORS.clearDayCold), hexToRgb(CATEGORY_COLORS.clearDayHot), temperatureLevel)
   );

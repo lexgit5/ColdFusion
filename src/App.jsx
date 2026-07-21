@@ -6,7 +6,7 @@ import { getUserLocation, getWeather } from './utils/weather'
 import { getBlendWeights, getDialMetrics } from './utils/blend'
 import { fetchTracklists, pickTrack } from './utils/queueBuilder'
 import { playTrack, queueTrack } from './utils/spotifyApi'
-import { getSkyColor } from './utils/skyColor'
+import { getSkyColor, applyCloudCover } from './utils/skyColor'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
 import PlaybackControls from './components/PlaybackControls'
@@ -164,8 +164,28 @@ function App() {
   // Setup is "done" once both auth and weather are connected — this hides the setup buttons
   const setupComplete = spotifyAuthStatus === "Connected" && weatherStatus === "Connected";
 
-  // Live sky background color, derived from the current blend weights
-  const skyColor = getSkyColor(blendWeights);
+  // Forces a re-render once a minute so getSkyColor() re-reads the current
+  // time and the background keeps drifting on its own, even with no other
+  // state changes happening. The value itself is never read — only the
+  // state update (and resulting re-render) matters.
+  const [, setClockTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setClockTick((t) => t + 1);
+    }, 60000); // once a minute is plenty for a gradient this gradual
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Live sky background color, anchored to today's real local sunrise/sunset
+  // once weather has been checked; falls back to a fixed-hour gradient before
+  // that. Then desaturated toward grey based on cloud cover — a color that's
+  // already near-grey (deep midnight) barely changes no matter how overcast
+  // it is, so the effect naturally fades out at night on its own.
+  const baseSkyColor = getSkyColor(weatherData?.daily);
+  const cloudCoverFraction = weatherData ? weatherData.cloud_cover / 100 : 0;
+  const skyColor = applyCloudCover(baseSkyColor, cloudCoverFraction);
 
   // Dial/riser metrics, computed directly from weather data — updates as soon as
   // weather is checked, independent of whether a queue has been built yet
