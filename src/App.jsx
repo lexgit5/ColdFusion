@@ -148,16 +148,36 @@ function App() {
 
     const { categories, tracklists } = await fetchTracklists(weights, accessToken);
 
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 10; i++) {
       const track = pickTrack(weights, categories, tracklists);
       if (!track) continue;
 
-      if (i === 0) {
-        await playTrack(deviceId, accessToken, track.uri);
-      } else {
-        await queueTrack(deviceId, accessToken, track.uri);
-        await wait(500);
+      let queued = false;
+
+      while (!queued) {
+        try {
+          if (i === 0) {
+            await playTrack(deviceId, accessToken, track.uri);
+          } else {
+            await queueTrack(deviceId, accessToken, track.uri);
+          }
+
+          queued = true;
+        } catch (err) {
+          // Retry only if it's the Spotify Premium 403
+          if (err.message.includes("403")) {
+            console.log("Spotify not ready yet. Retrying in 1 second...");
+            await wait(1000);
+          } else {
+            // Unknown error - stop the whole process
+            throw err;
+          }
+        }
       }
+
+      // Keep your spacing between queued songs
+      await wait(1000);
+      
     }
   }
 

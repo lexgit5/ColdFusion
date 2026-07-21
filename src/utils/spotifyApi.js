@@ -1,5 +1,10 @@
+// Routed through the Cloudflare Pages Function at functions/api/spotify/[[path]].js
+// instead of hitting api.spotify.com directly from the browser — that Function
+// forwards the request server-side, so it's never subject to CORS at all.
+const SPOTIFY_BASE = '/api/spotify';
+
 async function playTrack(deviceId, token, trackUri) {
-  const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+  const response = await fetch(`${SPOTIFY_BASE}/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -17,7 +22,7 @@ async function playTrack(deviceId, token, trackUri) {
 }
 
 async function playPlaylist(deviceId, token, playlistUri) {
-  const response = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+  const response = await fetch(`${SPOTIFY_BASE}/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -35,7 +40,7 @@ async function playPlaylist(deviceId, token, playlistUri) {
 }
 
 async function getPlaylistTracks(playlistId, token) {
-  const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/items`, {
+  const response = await fetch(`${SPOTIFY_BASE}/playlists/${playlistId}/items`, {
     headers: {
       'Authorization': `Bearer ${token}`,
     },
@@ -60,7 +65,7 @@ async function getPlaylistTracks(playlistId, token) {
 // Adds a single track to the END of Spotify's actual playback queue on the given device.
 // This is what nextTrack()/previousTrack() actually skip through — playTrack alone doesn't queue anything.
 async function queueTrack(deviceId, token, trackUri) {
-  const url = `https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(trackUri)}&device_id=${deviceId}`;
+  const url = `${SPOTIFY_BASE}/me/player/queue?uri=${encodeURIComponent(trackUri)}&device_id=${deviceId}`;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -79,7 +84,7 @@ async function queueTrack(deviceId, token, trackUri) {
 // Needed because a leftover/default shuffle state will silently reorder your queued tracks
 // even though queueTrack adds them in a specific order.
 async function setShuffle(deviceId, token, shuffleState) {
-  const url = `https://api.spotify.com/v1/me/player/shuffle?state=${shuffleState}&device_id=${deviceId}`;
+  const url = `${SPOTIFY_BASE}/me/player/shuffle?state=${shuffleState}&device_id=${deviceId}`;
 
   const response = await fetch(url, {
     method: 'PUT',
