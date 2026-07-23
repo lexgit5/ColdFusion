@@ -23,11 +23,11 @@ function getConditionLabel(code, isDay) {
     5101: "Heavy Snow",
     6000: "Freezing Drizzle",
     6001: "Freezing Rain",
-    6200: "Light Freezing Rain",
-    6201: "Heavy Freezing Rain",
+    6200: "Light Freezing\u00A0Rain",
+    6201: "Heavy Freezing\u00A0Rain",
     7000: "Ice Pellets",
-    7101: "Heavy Ice Pellets",
-    7102: "Light Ice Pellets",
+    7101: "Heavy Ice\u00A0Pellets",
+    7102: "Light Ice\u00A0Pellets",
     8000: "Thunderstorm",
   };
 

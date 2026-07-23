@@ -4,10 +4,11 @@
   --panel-surface: #1B212C;
   --text-primary: #C9D3DC;
   --text-secondary: #7C8A9A;
-  --accent: #E8A34C;
+  --accent: #C9D3DC;
   --hairline: #2A3240;
   --spotify-green: #1DB954;
   --spotify-green-hover: #1ED760;
+  --setup-button: #5B4B8A;
 
   --font-display: 'Fraunces', serif;
   --font-body: 'Inter', sans-serif;
@@ -85,6 +86,8 @@ body {
   font-family: var(--font-display);
   font-weight: 600;
   line-height: 1.1;
+  padding-top: 32px;
+  padding-bottom: 12px;
   margin: 4px 0; /* was 0 — the space freed from sky-background's padding */
   opacity: 0;
   transition: opacity 2.5s ease, font-size 0.3s ease, margin-bottom 0.3s ease;
@@ -97,16 +100,16 @@ body {
    the base's 4px, not to 0 — e.g. --sm's -4px means "0px actual", same
    relative step-down as before this was rebased. */
 .weather-headline--lg {
-  font-size: 2.8rem;
+  font-size: 3.6rem;
 }
 
 .weather-headline--md {
-  font-size: 2.2rem;
+  font-size: 3.2rem;
   margin-bottom: 0;
 }
 
 .weather-headline--sm {
-  font-size: 1.8rem;
+  font-size: 2.8rem;
   margin-bottom: -4px;
 }
 
@@ -345,14 +348,14 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 28px;
+  gap: 40px;
 }
 
 .transport button {
   background: none;
   border: none;
   color: var(--text-primary);
-  font-size: 1.4rem;
+  font-size: 1.8rem;
   cursor: pointer;
   padding: 8px;
   border-radius: 50%;
@@ -360,13 +363,16 @@ body {
   line-height: 1;
 }
 
-.transport button:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--accent);
+.transport .play-pause {
+  font-size: 2.2rem;
 }
 
-.transport .play-pause {
-  font-size: 1.8rem;
+.play-pause .play-icon { 
+  transform: translateX(4px) scale(0.9);
+}
+
+.play-pause .pause-icon { 
+  transform: translateX(0px) scaleX(0.75);
 }
 
 /* --- Landing panel: the pre-start "connect everything" screen ---
@@ -443,7 +449,7 @@ body {
   color: #0B0E14;
   background: var(--spotify-green);
   border: 1px solid var(--spotify-green);
-  border-radius: 8px;
+  border-radius: 16px;
   padding: 10px 16px;
   cursor: pointer;
   transition: background 0.2s ease, color 0.3s ease, border-color 0.2s ease;
@@ -465,13 +471,13 @@ body {
 .setup-button:disabled {
   background: var(--hairline);
   color: var(--text-secondary);
-  border-color: var(--hairline);
+  border-color: var(--setup-button);
   cursor: default;
 }
 
 .setup-button--connected:hover,
 .setup-button:disabled:hover {
-  border-color: var(--hairline);
+  border-color: var(--setup-button);
   background: var(--hairline);
 }
 
@@ -483,7 +489,7 @@ body {
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--accent);
-  border-radius: 32px;
+  border-radius: 16px;
   padding: 16px 40px;
   cursor: pointer;
   transition: background 0.2s ease, transform 0.15s ease;
@@ -500,9 +506,9 @@ body {
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--setup-button);
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: 16px;
   padding: 10px 16px;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease;
@@ -510,7 +516,7 @@ body {
 
 .setup-button:hover {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--setup-button);
 }
 
 /* --- Responsive: tighten padding on very small screens --- */
