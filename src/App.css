@@ -316,13 +316,12 @@ body {
   height: 100%;
   background: var(--accent);
   border-radius: 2px;
-  transition: width 0.25s linear; /* ticks every 250ms, so this should track closely rather than lag behind like the 2.5s weather transitions */
 }
 
 .now-playing-track {
   font-family: var(--font-body);
   font-weight: 500;
-  font-size: 0.95rem;
+  font-size: 1.15rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -330,7 +329,7 @@ body {
 
 .now-playing-artist {
   font-family: var(--font-body);
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -444,11 +443,11 @@ body {
 .spotify-button {
   flex: 1;
   font-family: var(--font-body);
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   font-weight: 600;
   color: #0B0E14;
   background: var(--spotify-green);
-  border: 1px solid var(--spotify-green);
+  border: 2px solid var(--spotify-green);
   border-radius: 16px;
   padding: 10px 16px;
   cursor: pointer;
@@ -487,8 +486,8 @@ body {
   font-weight: 600;
   font-size: 1.3rem;
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
   padding: 16px 40px;
   cursor: pointer;
@@ -503,11 +502,11 @@ body {
 .setup-button {
   flex: 1;
   font-family: var(--font-body);
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   font-weight: 500;
   color: var(--text-primary);
   background: var(--setup-button);
-  border: 1px solid var(--hairline);
+  border: 2px solid var(--setup-button);
   border-radius: 16px;
   padding: 10px 16px;
   cursor: pointer;

@@ -63,16 +63,27 @@ function App() {
   const progressRef = useRef({ position: 0, duration: 0, updatedAt: Date.now(), paused: true });
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    let animationFrame;
+
+    const updateProgress = () => {
       const { position, duration, updatedAt, paused } = progressRef.current;
-      if (paused || !duration) return;
 
-      const elapsed = Date.now() - updatedAt;
-      const estimated = Math.min(duration, position + elapsed);
-      setProgress({ position: estimated, duration });
-    }, 250);
+      if (!paused && duration) {
+        const elapsed = Date.now() - updatedAt;
+        const estimated = Math.min(duration, position + elapsed);
 
-    return () => clearInterval(interval);
+        setProgress({
+          position: estimated,
+          duration,
+        });
+      }
+
+      animationFrame = requestAnimationFrame(updateProgress);
+    };
+
+    animationFrame = requestAnimationFrame(updateProgress);
+
+    return () => cancelAnimationFrame(animationFrame);
   }, []);
 
   useEffect(() => {
