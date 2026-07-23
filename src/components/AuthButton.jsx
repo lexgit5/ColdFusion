@@ -4,8 +4,10 @@ const CLIENT_ID = 'c053af2ce092429e87d6ffd4c8f23ba1';
 const REDIRECT_URL = 'http://127.0.0.1:8788/callback';
 const SCOPES = 'streaming user-read-email user-read-private playlist-read-private playlist-read-collaborative';
 
-function AuthButton() {
+function AuthButton({ connected }) {
   async function handleLogin() {
+    if (connected) return; // already connected — nothing to do
+
     const verifier = generateCodeVerifier();
     const challenge = await generateCodeChallenge(verifier);
 
@@ -23,7 +25,15 @@ function AuthButton() {
     window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`;
   }
 
-  return <button onClick={handleLogin}>Connect to Spotify</button>;
+  return (
+    <button
+      className={`spotify-button ${connected ? 'spotify-button--connected' : ''}`}
+      onClick={handleLogin}
+      disabled={connected}
+    >
+      {connected ? 'Spotify Connected' : 'Connect to Spotify'}
+    </button>
+  );
 }
 
 export default AuthButton;

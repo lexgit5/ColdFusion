@@ -1,41 +1,40 @@
 import { useState, useEffect, useRef } from 'react';
 
+// Tomorrow.io's weatherCode values (a flat, context-free code — day/night
+// wording is still handled ourselves via isDay, same as before, rather than
+// switching to their separate weatherCodeDay/weatherCodeNight fields).
 function getConditionLabel(code, isDay) {
   const map = {
-    0: isDay ? "Sunny" : "Clear",
-    1: isDay ? "Mostly Sunny" : "Mostly Clear",
-    2: "Partly Cloudy",
-    3: "Cloudy",
-    45: "Foggy",
-    48: "Foggy",
-    51: "Light Drizzle",
-    53: "Drizzle",
-    55: "Heavy Drizzle",
-    56: "Freezing Drizzle",
-    57: "Freezing Drizzle",
-    61: "Light Rain",
-    63: "Rain",
-    65: "Heavy Rain",
-    66: "Freezing Rain",
-    67: "Freezing Rain",
-    71: "Light Snow",
-    73: "Snow",
-    75: "Heavy Snow",
-    77: "Snow Grains",
-    80: "Rain Showers",
-    81: "Rain Showers",
-    82: "Heavy Rain Showers",
-    85: "Snow Showers",
-    86: "Heavy Snow Showers",
-    95: "Thunderstorm",
-    96: "Thunderstorm",
-    99: "Severe Thunderstorm",
+    0: "Unknown",
+    1000: isDay ? "Sunny" : "Clear",
+    1100: isDay ? "Mostly Sunny" : "Mostly Clear",
+    1101: "Partly Cloudy",
+    1102: "Mostly Cloudy",
+    1001: "Cloudy",
+    2000: "Foggy",
+    2100: "Foggy",
+    4000: "Drizzle",
+    4001: "Rain",
+    4200: "Light Rain",
+    4201: "Heavy Rain",
+    5000: "Snow",
+    5001: "Flurries",
+    5100: "Light Snow",
+    5101: "Heavy Snow",
+    6000: "Freezing Drizzle",
+    6001: "Freezing Rain",
+    6200: "Light Freezing Rain",
+    6201: "Heavy Freezing Rain",
+    7000: "Ice Pellets",
+    7101: "Heavy Ice Pellets",
+    7102: "Light Ice Pellets",
+    8000: "Thunderstorm",
   };
 
   return map[code] || "Unknown";
 }
 
-// Short labels ("Sunny") read better big; long ones ("Severe Thunderstorm")
+// Short labels ("Sunny") read better big; long ones ("Heavy Freezing Rain")
 // need to come down a size (and are allowed to wrap) or they'd force a
 // scroll on shorter viewports. Tune the two thresholds if new condition
 // strings get added and a label lands in the wrong tier.

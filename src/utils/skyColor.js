@@ -163,6 +163,34 @@ function colorAtStop(stops, t) {
   return rgbToHex(mix(hexToRgb(lower.color), hexToRgb(upper.color), localT));
 }
 
+// Figures out which named period (day or night) `now` falls in, and how far
+// through it we are. Shared by getSkyColor and getIsDay so both always agree
+// with each other — there's exactly one notion of "now" and one notion of
+// "is it day", not two that could drift apart.
+function getSkyPeriod(daily, now) {
+  if (!daily || !daily.sunrise || !daily.sunset || daily.sunrise.length < 3 || daily.sunset.length < 3) {
+    // No location yet — rough fallback so getIsDay still returns something
+    // sensible before weather has ever been checked.
+    const h = now.getHours() + now.getMinutes() / 60;
+    return { isDay: h >= 6 && h < 18, periodStart: null, periodEnd: null, stops: null };
+  }
+
+  const sunrise = daily.sunrise.map((s) => new Date(s));
+  const sunset = daily.sunset.map((s) => new Date(s));
+  // indices: [0]=yesterday, [1]=today, [2]=tomorrow
+
+  if (now < sunrise[1]) {
+    // before today's sunrise — night spans yesterday's sunset to today's sunrise
+    return { isDay: false, periodStart: sunset[0], periodEnd: sunrise[1], stops: NIGHT_STOPS };
+  }
+  if (now < sunset[1]) {
+    // daytime — today's sunrise to today's sunset
+    return { isDay: true, periodStart: sunrise[1], periodEnd: sunset[1], stops: DAY_STOPS };
+  }
+  // after today's sunset — night spans today's sunset to tomorrow's sunrise
+  return { isDay: false, periodStart: sunset[1], periodEnd: sunrise[2], stops: NIGHT_STOPS };
+}
+
 // `daily` is the { time, sunrise, sunset } block from getWeather() — arrays
 // of 3 ISO strings each (yesterday, today, tomorrow), thanks to past_days=1
 // & forecast_days=2 in the API request. Falls back to the fixed-hour
@@ -170,39 +198,25 @@ function colorAtStop(stops, t) {
 // weatherData shape without the daily block).
 function getSkyColor(daily) {
   const now = new Date();
+  const period = getSkyPeriod(daily, now);
 
-  if (!daily || !daily.sunrise || !daily.sunset || daily.sunrise.length < 3 || daily.sunset.length < 3) {
+  if (!period.stops) {
     return getFallbackSkyColor(now);
   }
 
-  const sunrise = daily.sunrise.map((s) => new Date(s));
-  const sunset = daily.sunset.map((s) => new Date(s));
-  // indices: [0]=yesterday, [1]=today, [2]=tomorrow
-
-  let periodStart, periodEnd, stops;
-
-  if (now < sunrise[1]) {
-    // before today's sunrise — night spans yesterday's sunset to today's sunrise
-    periodStart = sunset[0];
-    periodEnd = sunrise[1];
-    stops = NIGHT_STOPS;
-  } else if (now < sunset[1]) {
-    // daytime — today's sunrise to today's sunset
-    periodStart = sunrise[1];
-    periodEnd = sunset[1];
-    stops = DAY_STOPS;
-  } else {
-    // after today's sunset — night spans today's sunset to tomorrow's sunrise
-    periodStart = sunset[1];
-    periodEnd = sunrise[2];
-    stops = NIGHT_STOPS;
-  }
-
-  const span = periodEnd - periodStart;
-  const t = span > 0 ? (now - periodStart) / span : 0;
+  const span = period.periodEnd - period.periodStart;
+  const t = span > 0 ? (now - period.periodStart) / span : 0;
   const clampedT = Math.max(0, Math.min(1, t));
 
-  return colorAtStop(stops, clampedT);
+  return colorAtStop(period.stops, clampedT);
 }
 
-export { getSkyColor, applyCloudCover, hexToRgb, rgbToHex, mix };
+// Whether it's day or night right now, based on the same real sunrise/sunset
+// logic getSkyColor uses — meant to replace reading weatherData.is_day
+// directly, so the sky color and "is it day" can never disagree with each
+// other.
+function getIsDay(daily) {
+  return getSkyPeriod(daily, new Date()).isDay;
+}
+
+export { getSkyColor, getIsDay, applyCloudCover, hexToRgb, rgbToHex, mix };

@@ -6,7 +6,7 @@ import { getUserLocation, getWeather } from './utils/weather'
 import { getBlendWeights, getDialMetrics } from './utils/blend'
 import { fetchTracklists, pickTrack } from './utils/queueBuilder'
 import { playTrack, queueTrack } from './utils/spotifyApi'
-import { getSkyColor, applyCloudCover } from './utils/skyColor'
+import { getSkyColor, getIsDay, applyCloudCover } from './utils/skyColor'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
 import PlaybackControls from './components/PlaybackControls'
@@ -132,18 +132,57 @@ function App() {
     }
   }
 
+  // weatherData with is_day always computed fresh from the real current time
+  // + real sunrise/sunset, rather than trusted from either weather provider
+  // (neither Open-Meteo's hybrid setup nor Tomorrow.io's hand back is_day
+  // anymore — this is the one and only source of truth for it now).
+  const effectiveWeatherData = weatherData
+    ? {
+        ...weatherData,
+        is_day: getIsDay(weatherData.daily) ? 1 : 0,
+      }
+    : null;
+
   const [blendWeights, setBlendWeights] = useState(null);
   const [hasStarted, setHasStarted] = useState(false);
 
+  // Content (header, weather headline, dials, now playing) waits to fade in
+  // until the landing panel has actually finished fading out — otherwise
+  // both transitions run at once and overlap. 600ms matches
+  // .landing-panel--hidden's own fade-out duration in App.css; keep the two
+  // in sync if that duration ever changes.
+  const [showContent, setShowContent] = useState(false);
+
+  useEffect(() => {
+    if (!hasStarted) return;
+    const timer = setTimeout(() => setShowContent(true), 800);
+    return () => clearTimeout(timer);
+  }, [hasStarted]);
+
+  // The header/weather/dials/now-playing content mounts fresh the moment
+  // showContent flips true, so there's no earlier "invisible" frame for a
+  // CSS opacity transition to animate from — it would just pop in. This
+  // gives it one: render at opacity 0 first, then flip contentRevealed true
+  // a couple of frames later (same double-rAF pattern WeatherInfo/
+  // WeatherDials use internally), so the fade actually plays.
+  const [contentRevealed, setContentRevealed] = useState(false);
+
+  useEffect(() => {
+    if (!showContent) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setContentRevealed(true));
+    });
+  }, [showContent]);
+
   async function handleStart() {
-    if (!weatherData || !deviceId) {
+    if (!effectiveWeatherData || !deviceId) {
       console.error('Missing weather data or device — check weather and ensure player is ready first');
       return;
     }
 
     setHasStarted(true); // triggers the headline, dials, and risers to fade/animate in
 
-    const weights = getBlendWeights(weatherData);
+    const weights = getBlendWeights(effectiveWeatherData);
     setBlendWeights(weights);
 
     const { categories, tracklists } = await fetchTracklists(weights, accessToken);
@@ -177,17 +216,33 @@ function App() {
 
       // Keep your spacing between queued songs
       await wait(1000);
-      
+
     }
   }
 
-  // Setup is "done" once both auth and weather are connected — this hides the setup buttons
+  // Setup is "done" once both auth and weather are connected
   const setupComplete = spotifyAuthStatus === "Connected" && weatherStatus === "Connected";
 
-  // Forces a re-render once a minute so getSkyColor() re-reads the current
-  // time and the background keeps drifting on its own, even with no other
-  // state changes happening. The value itself is never read — only the
-  // state update (and resulting re-render) matters.
+  // The Start button waits to fade in until landing-setup has actually
+  // finished fading out — otherwise the two crossfade instead of a clean
+  // fade-out-then-fade-in. 800ms matches .landing-setup's own opacity
+  // transition duration in App.css; keep the two in sync if that changes.
+  const [showStart, setShowStart] = useState(false);
+
+  useEffect(() => {
+    if (!setupComplete) {
+      setShowStart(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowStart(true), 800);
+    return () => clearTimeout(timer);
+  }, [setupComplete]);
+
+  // Forces a re-render once a minute so getSkyColor()/getIsDay() re-read the
+  // current time and the background (and brightness dial) keep drifting on
+  // their own, even with no other state changes happening. The tick value
+  // itself is never read — only the state update (and resulting re-render)
+  // matters.
   const [, setClockTick] = useState(0);
 
   useEffect(() => {
@@ -204,42 +259,71 @@ function App() {
   // already near-grey (deep midnight) barely changes no matter how overcast
   // it is, so the effect naturally fades out at night on its own.
   const baseSkyColor = getSkyColor(weatherData?.daily);
-  const cloudCoverFraction = weatherData ? weatherData.cloud_cover / 100 : 0;
-  const skyColor = applyCloudCover(baseSkyColor, cloudCoverFraction);
+  const cloudCoverFraction = effectiveWeatherData ? effectiveWeatherData.cloud_cover / 100 : 0;
+  const computedSkyColor = applyCloudCover(baseSkyColor, cloudCoverFraction);
 
-  // Dial/riser metrics, computed directly from weather data — updates as soon as
-  // weather is checked, independent of whether a queue has been built yet
-  const dialMetrics = weatherData ? getDialMetrics(weatherData) : null;
+  // Stays on the original default background through the whole landing
+  // page — the real weather-based color only takes over once showContent
+  // flips true (i.e. after the landing panel has finished fading out), so
+  // the background change happens alongside the content fade-in rather than
+  // racing the landing panel's own fade-out. The existing 2.5s CSS
+  // transition on background-color animates that swap smoothly.
+  const DEFAULT_SKY_COLOR = '#0B0E14';
+  const skyColor = showContent ? computedSkyColor : DEFAULT_SKY_COLOR;
+
+  // Dial/riser metrics, computed from (is_day-corrected) weather data —
+  // updates as soon as weather is checked, independent of whether a queue
+  // has been built yet
+  const dialMetrics = effectiveWeatherData ? getDialMetrics(effectiveWeatherData) : null;
 
   return (
-    <div className="sky-background" style={{ '--sky-color': skyColor, backgroundColor: skyColor }}>
-      <div className="page-header">ColdFusion</div>
-
+    <div className={`sky-background ${!showContent ? 'sky-background--centered' : ''}`} style={{ '--sky-color': skyColor, backgroundColor: skyColor }}>
       <div className="page">
-        <WeatherInfo weatherData={weatherData} started={hasStarted} />
+        {showContent && (
+          <div className={`content-reveal ${contentRevealed ? 'content-reveal--visible' : ''}`}>
+            <WeatherInfo weatherData={effectiveWeatherData} started={showContent} />
 
-        <div className="panel">
-          <WeatherDials metrics={dialMetrics} started={hasStarted} />
-        </div>
+            <div className="panel">
+              <WeatherDials metrics={dialMetrics} started={showContent} />
+            </div>
 
-        <div className="panel">
+            <div className="panel">
+              <NowPlaying track={currentTrack} progress={progress} />
 
-          <NowPlaying track={currentTrack} progress={progress} />
-
-          <PlaybackControls
-            player={player}
-            isPaused={isPaused}
-            hasTrack={!!currentTrack}
-            onStart={handleStart}
-          />
-
-          <div className={`setup-actions ${setupComplete ? 'hidden' : ''}`}>
-            <AuthButton />
-            <button className="setup-button" onClick={handleCheckWeather}>
-              Check Weather
-            </button>
+              <PlaybackControls
+                player={player}
+                isPaused={isPaused}
+                hasTrack={!!currentTrack}
+                onStart={handleStart}
+              />
+            </div>
           </div>
-        </div>
+        )}
+
+        {!showContent && (
+          <div className={`panel landing-panel ${hasStarted ? 'landing-panel--hidden' : ''}`}>
+            <div className="landing-title">ColdFusion</div>
+
+            <div className="landing-toggle">
+              <div className={`landing-setup ${setupComplete ? 'landing-setup--hidden' : ''}`}>
+                <AuthButton connected={spotifyAuthStatus === "Connected"} />
+                <button
+                  className={`setup-button ${weatherStatus === "Connected" ? 'setup-button--connected' : ''}`}
+                  onClick={handleCheckWeather}
+                  disabled={weatherStatus === "Connected"}
+                >
+                  {weatherStatus === "Connected" ? "Location Provided" : "Provide Location"}
+                </button>
+              </div>
+
+              <div className={`landing-start ${showStart ? '' : 'landing-start--hidden'}`}>
+                <button className="start-button" onClick={handleStart}>
+                  Start
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

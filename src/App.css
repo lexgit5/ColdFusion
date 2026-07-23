@@ -6,6 +6,8 @@
   --text-secondary: #7C8A9A;
   --accent: #E8A34C;
   --hairline: #2A3240;
+  --spotify-green: #1DB954;
+  --spotify-green-hover: #1ED760;
 
   --font-display: 'Fraunces', serif;
   --font-body: 'Inter', sans-serif;
@@ -35,8 +37,14 @@ body {
   transition: background-color 2.5s ease;
 }
 
-/* Vertical stack holding the header, weather headline (both sitting directly
-   on the background) and the panel card underneath them */
+/* Pre-start (landing) state: vertically centers .page instead of pinning it
+   near the top, since the only thing rendered at that point is the single
+   landing panel. */
+.sky-background--centered {
+  align-items: center;
+}
+
+/* Vertical stack holding the weather headline, panels, and landing panel */
 .page {
   width: 100%;
   max-width: 520px;
@@ -45,18 +53,18 @@ body {
   gap: 4px;
 }
 
-.page-header {
-  display: none; /* TODO: fade out on `started` instead, alongside the rest of the reveal */
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 0.95rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
+/* Wraps everything that mounts once showContent flips true (weather
+   headline, dials panel, now-playing panel) in one unified fade, rather
+   than relying on each piece's own internal reveal logic — those only
+   animate correctly when already-mounted content flips a prop, not on
+   fresh mount. */
+.content-reveal {
+  opacity: 0;
+  transition: opacity 2.5s ease;
+}
+
+.content-reveal--visible {
+  opacity: 1;
 }
 
 .panel {
@@ -361,24 +369,133 @@ body {
   font-size: 1.8rem;
 }
 
-/* --- Setup actions (Check Weather / Connect) --- */
-.setup-actions {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 20px;
-  transition: opacity 0.6s ease, max-height 0.6s ease, margin 0.6s ease;
-  overflow: hidden;
+/* --- Landing panel: the pre-start "connect everything" screen ---
+   Two inner sections (.landing-setup and .landing-start) live in the same
+   panel and sequence one after the other as setupComplete flips — setup
+   fades out first, then (per App.jsx's showStart delay) start fades in.
+   The panel itself only fades out once, when hasStarted flips true. */
+.landing-panel {
+  align-items: center;
+  gap: 0;
 }
 
-.setup-actions.hidden {
+.landing-title {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 2rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+
+.landing-panel--hidden {
   opacity: 0;
-  max-height: 0;
-  margin: 0;
+  pointer-events: none;
+  transition: opacity 0.8s ease;
+}
+
+/* Stacks .landing-setup and .landing-start in the same grid cell, so the
+   container is always sized to whichever is taller — the panel doesn't
+   grow/shrink as they sequence, since there's no "collapse the old one,
+   expand the new one" step. */
+.landing-toggle {
+  display: grid;
+  width: 100%;
+}
+
+.landing-setup {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  transition: opacity 0.8s ease;
+}
+
+.landing-setup--hidden {
+  opacity: 0;
   pointer-events: none;
 }
 
+.landing-start {
+  grid-area: 1 / 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  transition: opacity 0.8s ease;
+}
+
+.landing-start--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --- Spotify connect button --- */
+.spotify-button {
+  flex: 1;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0B0E14;
+  background: var(--spotify-green);
+  border: 1px solid var(--spotify-green);
+  border-radius: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.3s ease, border-color 0.2s ease;
+}
+
+.spotify-button:hover:not(:disabled) {
+  background: var(--spotify-green-hover);
+}
+
+.spotify-button--connected,
+.spotify-button:disabled {
+  background: var(--hairline);
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+/* --- Location button (reuses .setup-button, adds a connected/greyed state) --- */
+.setup-button--connected,
+.setup-button:disabled {
+  background: var(--hairline);
+  color: var(--text-secondary);
+  border-color: var(--hairline);
+  cursor: default;
+}
+
+.setup-button--connected:hover,
+.setup-button:disabled:hover {
+  border-color: var(--hairline);
+  background: var(--hairline);
+}
+
+/* --- Centralized Start button --- */
+.start-button {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.3rem;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--accent);
+  border-radius: 32px;
+  padding: 16px 40px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.start-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.03);
+}
+
 .setup-button {
+  flex: 1;
   font-family: var(--font-body);
   font-size: 0.85rem;
   font-weight: 500;
