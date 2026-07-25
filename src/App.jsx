@@ -146,12 +146,17 @@ function App() {
   }, [accessToken]);
 
   const [weatherData, setWeatherData] = useState(null);
+  // Stored after the first successful geolocation fetch, so the 15-minute
+  // weather refresh below can re-call getWeather() directly without
+  // re-prompting the browser's location permission every time.
+  const [coords, setCoords] = useState(null);
 
   async function handleCheckWeather() {
     try {
       setGeolocationStatus("Requesting...");
       const { latitude, longitude } = await getUserLocation();
       setGeolocationStatus("Connected");
+      setCoords({ latitude, longitude });
 
       setWeatherStatus("Fetching...");
       const weather = await getWeather(latitude, longitude);
@@ -162,6 +167,64 @@ function App() {
       setWeatherStatus(`Error: ${err.message}`);
     }
   }
+
+  // Keep weather current: once we have a location, re-fetch every 15
+  // minutes in the background — no geolocation re-prompt, just a fresh
+  // getWeather() call with the coords we already have. weatherData feeding
+  // into effectiveWeatherData (and everything derived from it — dials, sky
+  // color, blend weights) is already reactive, so this alone keeps the
+  // display current. It does NOT rebuild the live Spotify queue — that only
+  // happens via Start or the debug overrides Apply button, same as before.
+  //
+  // If a refresh fails (network blip, API hiccup), a separate 1-minute
+  // retry loop takes over — trying every minute until one succeeds — rather
+  // than silently waiting out the rest of the 15-minute window on stale
+  // data. Once a retry succeeds, the retry loop stops and the normal
+  // 15-minute interval (which keeps running the whole time) picks back up
+  // on its own schedule.
+  const WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+  const WEATHER_RETRY_INTERVAL_MS = 60 * 1000;
+  const retryIntervalRef = useRef(null);
+
+  useEffect(() => {
+    if (!coords) return;
+
+    function startRetryLoop() {
+      if (retryIntervalRef.current) return; // already retrying, don't stack a second loop
+
+      retryIntervalRef.current = setInterval(async () => {
+        try {
+          const weather = await getWeather(coords.latitude, coords.longitude);
+          setWeatherData(weather);
+          clearInterval(retryIntervalRef.current);
+          retryIntervalRef.current = null;
+        } catch (err) {
+          console.error('Weather refresh retry failed, trying again in 1 minute:', err);
+        }
+      }, WEATHER_RETRY_INTERVAL_MS);
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const weather = await getWeather(coords.latitude, coords.longitude);
+        setWeatherData(weather);
+      } catch (err) {
+        // Don't clobber weatherStatus/weatherData on a background refresh
+        // failure — just log it, keep showing the last good reading, and
+        // switch to the faster retry cadence until it recovers.
+        console.error('Background weather refresh failed, switching to 1-minute retries:', err);
+        startRetryLoop();
+      }
+    }, WEATHER_REFRESH_INTERVAL_MS);
+
+    return () => {
+      clearInterval(interval);
+      if (retryIntervalRef.current) {
+        clearInterval(retryIntervalRef.current);
+        retryIntervalRef.current = null;
+      }
+    };
+  }, [coords]);
 
   // DEBUG: WEATHER OVERRIDES — start
   // Manual overrides for temperature / precipitation / cloud cover / current
