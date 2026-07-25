@@ -86,6 +86,40 @@ function applyCloudCover(hex, cloudFraction) {
   return rgbToHex(hslToRgb({ h: hsl.h, s, l }));
 }
 
+// Storm darkening: as precipitation intensity climbs, the sky darkens and
+// its hue eases toward a cool storm-blue — the way thunderclouds don't just
+// dim daylight, they tint it. Same HSL-nudge technique as applyCloudCover
+// (rather than mixing toward a fixed RGB color), for two reasons:
+//   - Multiplying lightness down (never adding/mixing it up) guarantees this
+//     only ever darkens a color, so it can't accidentally lighten an
+//     already-near-black night sky.
+//   - Like cloud cover, the effect is naturally weakest exactly when the sky
+//     is already dark (night) and strongest against a bright midday blue —
+//     no special-casing needed, it just falls out of multiplying lightness.
+// `precipFraction` is 0-1 (e.g. the same min(precipitation / 5, 1) used for
+// the precipitation dial in blend.js).
+const STORM_HUE = 0.61; // ~220° — cool blue-grey, matches the rest of the palette's blues
+
+function applyPrecipitation(hex, precipFraction) {
+  const MAX_DARKEN = 0.4; // at full intensity, lightness drops to 60% of its current value
+  const MAX_HUE_PULL = 0.5; // how far the hue eases toward STORM_HUE at full intensity
+  const MAX_SATURATION_BOOST = 0.15; // slight boost so the blue tint reads instead of just going grey
+
+  const hsl = rgbToHsl(hexToRgb(hex));
+
+  // Shift hue toward STORM_HUE via the shorter direction around the color wheel
+  let hueDiff = STORM_HUE - hsl.h;
+  if (hueDiff > 0.5) hueDiff -= 1;
+  if (hueDiff < -0.5) hueDiff += 1;
+  let h = hsl.h + hueDiff * precipFraction * MAX_HUE_PULL;
+  h = ((h % 1) + 1) % 1;
+
+  const s = Math.min(1, hsl.s + precipFraction * MAX_SATURATION_BOOST);
+  const l = hsl.l * (1 - precipFraction * MAX_DARKEN);
+
+  return rgbToHex(hslToRgb({ h, s, l }));
+}
+
 // Fallback stops (fixed clock hours), used only before we have a location
 // and real sunrise/sunset times to work with — e.g. on first load, before
 // "Check Weather" has been clicked.
@@ -164,13 +198,13 @@ function colorAtStop(stops, t) {
 }
 
 // Figures out which named period (day or night) `now` falls in, and how far
-// through it we are. Shared by getSkyColor and getIsDay so both always agree
-// with each other — there's exactly one notion of "now" and one notion of
-// "is it day", not two that could drift apart.
+// through it we are. Shared by getSkyColor, getIsDay, and getDayFraction so
+// all three always agree with each other — there's exactly one notion of
+// "now" and one notion of "is it day", not several that could drift apart.
 function getSkyPeriod(daily, now) {
   if (!daily || !daily.sunrise || !daily.sunset || daily.sunrise.length < 3 || daily.sunset.length < 3) {
-    // No location yet — rough fallback so getIsDay still returns something
-    // sensible before weather has ever been checked.
+    // No location yet — rough fallback so getIsDay/getDayFraction still
+    // return something sensible before weather has ever been checked.
     const h = now.getHours() + now.getMinutes() / 60;
     return { isDay: h >= 6 && h < 18, periodStart: null, periodEnd: null, stops: null };
   }
@@ -196,8 +230,10 @@ function getSkyPeriod(daily, now) {
 // & forecast_days=2 in the API request. Falls back to the fixed-hour
 // gradient if it's not available yet (no weather checked, or an older
 // weatherData shape without the daily block).
-function getSkyColor(daily) {
-  const now = new Date();
+//
+// `now` defaults to the real current time but can be overridden (e.g. by a
+// debug time-override panel) to preview the sky at any moment.
+function getSkyColor(daily, now = new Date()) {
   const period = getSkyPeriod(daily, now);
 
   if (!period.stops) {
@@ -214,9 +250,50 @@ function getSkyColor(daily) {
 // Whether it's day or night right now, based on the same real sunrise/sunset
 // logic getSkyColor uses — meant to replace reading weatherData.is_day
 // directly, so the sky color and "is it day" can never disagree with each
-// other.
-function getIsDay(daily) {
-  return getSkyPeriod(daily, new Date()).isDay;
+// other. `now` defaults to the real current time, same override support as
+// getSkyColor above (and both must be passed the same `now` to stay in sync).
+function getIsDay(daily, now = new Date()) {
+  return getSkyPeriod(daily, now).isDay;
 }
 
-export { getSkyColor, getIsDay, applyCloudCover, hexToRgb, rgbToHex, mix };
+// Standard smoothstep (0 below edge0, 1 above edge1, eased S-curve between).
+function smoothstep(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+// How far `now` is into "day-ness" as a continuous 0-1 value, instead of the
+// hard is_day 0/1 split — graded by proximity to whichever sunrise/sunset is
+// nearest. Flat at 1 through the middle of the day, flat at 0 through the
+// middle of the night, and eases smoothly through 0.5 across a
+// TWILIGHT_WINDOW_MS-wide window straddling the nearest sun event, so it
+// reaches exactly 0 right at sunset and exactly 1 right at sunrise with no
+// jump — the day-side and night-side ramps are two halves of one continuous
+// curve, not two independent ramps that could disagree at the boundary.
+//
+// Falls back to a hard 0/1 (same as getIsDay) before there's sunrise/sunset
+// data to grade against.
+const TWILIGHT_WINDOW_MS = 60 * 60 * 1000; // total width of the ramp: 30 min on each side of the sun event
+
+function getDayFraction(daily, now = new Date()) {
+  const period = getSkyPeriod(daily, now);
+
+  if (!period.periodStart || !period.periodEnd) {
+    return period.isDay ? 1 : 0;
+  }
+
+  const sunriseTime = period.isDay ? period.periodStart : period.periodEnd;
+  const sunsetTime = period.isDay ? period.periodEnd : period.periodStart;
+
+  const distToSunrise = Math.abs(now - sunriseTime);
+  const distToSunset = Math.abs(now - sunsetTime);
+  const halfWindow = TWILIGHT_WINDOW_MS / 2;
+
+  // Grade against whichever sun event is nearer — far from both, this
+  // clamps to the same flat 0/1 that getIsDay would give.
+  return distToSunrise <= distToSunset
+    ? smoothstep(-halfWindow, halfWindow, now - sunriseTime)   // ramps night(0) -> day(1) across sunrise
+    : smoothstep(-halfWindow, halfWindow, sunsetTime - now);   // ramps day(1) -> night(0) across sunset
+}
+
+export { getSkyColor, getIsDay, getDayFraction, applyCloudCover, applyPrecipitation, hexToRgb, rgbToHex, mix };

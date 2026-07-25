@@ -145,15 +145,43 @@ body {
    .dial-hole is the tactile cap sitting in the middle of it (same treatment
    as .riser-cap), and .dial-pointer is that cap's grip line, rotating instead
    of sliding. */
+
+/* Dial is now an inline SVG arc path instead of a conic-gradient
+   background. Reason: a conic-gradient is one atomic value — even with
+   @property making a custom property animatable, browsers don't reliably
+   repaint a gradient built from it each frame. stroke-dashoffset on a path
+   is a plain, directly animatable numeric property (same category as the
+   riser's `height`, which already works), so this swaps to that instead. */
 .dial {
   width: 56px;
   height: 56px;
   border-radius: 50%;
   position: relative;
-  transition: background 2.5s ease;
   box-shadow:
     inset 0 0 0 1px rgba(0, 0, 0, 0.25),
     inset 0 1px 3px rgba(0, 0, 0, 0.35); /* recesses the ring, like the riser track */
+}
+
+.dial svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.dial-track,
+.dial-fill {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.dial-track {
+  stroke: var(--hairline);
+}
+
+.dial-fill {
+  transition: stroke-dashoffset 2.5s ease, stroke 2.5s ease;
 }
 
 .dial-hole {
@@ -306,7 +334,7 @@ body {
 
 .progress-bar {
   width: 100%;
-  height: 4px;
+  height: 6px;
   border-radius: 2px;
   background: var(--hairline);
   overflow: hidden;
@@ -443,7 +471,7 @@ body {
 .spotify-button {
   flex: 1;
   font-family: var(--font-body);
-  font-size: 0.84rem;
+  font-size: 0.81rem;
   font-weight: 600;
   color: #0B0E14;
   background: var(--spotify-green);
@@ -482,9 +510,9 @@ body {
 
 /* --- Centralized Start button --- */
 .start-button {
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-weight: 600;
-  font-size: 1.3rem;
+  font-size: 1.15rem;
   color: var(--text-primary);
   background: rgba(255, 255, 255, 0.08);
   border: 2px solid rgba(255, 255, 255, 0.08);
@@ -502,7 +530,7 @@ body {
 .setup-button {
   flex: 1;
   font-family: var(--font-body);
-  font-size: 0.84rem;
+  font-size: 0.81rem;
   font-weight: 500;
   color: var(--text-primary);
   background: var(--setup-button);
@@ -518,9 +546,205 @@ body {
   background: var(--setup-button);
 }
 
+/* ============================================================================
+   DEBUG: WEATHER OVERRIDES — start
+   Debug panel for forcing temp/precip/cloud cover/time. Reuses .panel for
+   the card shell; inputs and buttons borrow the same mono/body fonts and
+   hairline/setup-button colors used elsewhere so it reads as part of the
+   app rather than a bolted-on dev tool.
+
+   TO REMOVE: delete every rule between this comment and the matching
+   "DEBUG: WEATHER OVERRIDES — end" comment below.
+   ============================================================================ */
+.weather-overrides__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.weather-overrides__badge {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text-primary);
+  background: var(--hairline);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+
+.weather-overrides__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.weather-overrides__field {
+  flex: 1;
+  min-width: 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.weather-overrides__field input {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  padding: 8px 10px;
+  width: 100%;
+  transition: border-color 0.2s ease;
+}
+
+.weather-overrides__field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Chrome/Safari number spinners crowd a field this narrow */
+.weather-overrides__field input::-webkit-outer-spin-button,
+.weather-overrides__field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.weather-overrides__field input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* The date/time field reads wider than the three number fields — let it
+   take a full row of its own once things wrap on narrow screens */
+.weather-overrides__field--time {
+  flex: 1 1 100%;
+  min-width: 180px;
+}
+
+.weather-overrides__field--time input {
+  color-scheme: dark; /* keeps the native picker icon legible on the dark panel */
+}
+
+.weather-overrides__buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.weather-overrides__apply,
+.weather-overrides__revert {
+  flex: 1;
+  font-family: var(--font-body);
+  font-size: 0.84rem;
+  font-weight: 500;
+  border-radius: 16px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.weather-overrides__apply {
+  color: var(--text-primary);
+  background: var(--setup-button);
+  border: 2px solid var(--setup-button);
+}
+
+.weather-overrides__apply:hover {
+  border-color: var(--accent);
+}
+
+.weather-overrides__revert {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 2px solid var(--hairline);
+}
+
+.weather-overrides__revert:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.weather-overrides__revert:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.weather-overrides__blend {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weather-overrides__blend-title {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.weather-overrides__blend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.weather-overrides__blend-label {
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.weather-overrides__blend-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.weather-overrides__blend-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+.weather-overrides__blend-value {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-primary);
+  width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+/* DEBUG: WEATHER OVERRIDES — end */
+
 /* --- Responsive: tighten padding on very small screens --- */
 @media (max-width: 400px) {
   .panel {
     padding: 18px;
+  }
+
+  .weather-overrides__field { /* DEBUG: WEATHER OVERRIDES — delete with the rest */
+    min-width: 84px;
   }
 }

@@ -23,17 +23,26 @@ function getUserLocation() {
 // (adjust the env var access below if you're not on Vite).
 const API_KEY = import.meta.env.VITE_TOMORROW_API_KEY;
 
-// --- Sunrise/sunset: Open-Meteo -------------------------------------------
+// --- Sunrise/sunset + current precipitation: Open-Meteo -------------------
 // Tomorrow.io's free tier restricts sunriseTime/sunsetTime to a -6 hour
 // lookback (paid accounts get -7 days), which isn't enough for the
 // yesterday/today/tomorrow window the sky gradient needs. Open-Meteo has no
-// such restriction, so it handles this one field instead — everything else
+// such restriction, so it handles sunrise/sunset instead — everything else
 // still comes from Tomorrow.io.
-async function getSunriseSunset(latitude, longitude) {
+//
+// Also pulls current precipitation from the same request (no extra fetch)
+// so getWeather can cross-check it against Tomorrow.io's number — Tomorrow's
+// nowcast has been seen to report 0 while it was actually raining, so
+// precipitation specifically uses whichever provider reports the higher
+// value rather than trusting Tomorrow.io alone. Just precipitation for now;
+// temperature and cloud cover aren't part of this fetch.
+async function getSunriseSunsetAndPrecipitation(latitude, longitude) {
   const params = new URLSearchParams({
     latitude,
     longitude,
     daily: 'sunrise,sunset',
+    current: 'precipitation',
+    precipitation_unit: 'inch', // match Tomorrow.io's units: 'imperial' (in/hr)
     timezone: 'auto',
     past_days: '1',
     forecast_days: '2',
@@ -47,11 +56,14 @@ async function getSunriseSunset(latitude, longitude) {
 
   const data = await response.json();
 
-  // 3 entries each: [0]=yesterday, [1]=today, [2]=tomorrow — matches what
-  // skyColor.js's getSkyPeriod expects.
   return {
-    sunrise: data.daily.sunrise,
-    sunset: data.daily.sunset,
+    // 3 entries each: [0]=yesterday, [1]=today, [2]=tomorrow — matches what
+    // skyColor.js's getSkyPeriod expects.
+    daily: {
+      sunrise: data.daily.sunrise,
+      sunset: data.daily.sunset,
+    },
+    precipitation: data.current.precipitation,
   };
 }
 
@@ -90,17 +102,24 @@ async function getCurrentConditions(latitude, longitude) {
 // intentionally NOT included here — App.jsx computes it itself from daily +
 // the current/overridden time, independent of either provider.
 async function getWeather(latitude, longitude) {
-  const [current, daily] = await Promise.all([
+  const [current, openMeteo] = await Promise.all([
     getCurrentConditions(latitude, longitude),
-    getSunriseSunset(latitude, longitude),
+    getSunriseSunsetAndPrecipitation(latitude, longitude),
   ]);
+
+  // Precipitation: take whichever provider reports the higher value.
+  // Tomorrow.io's nowcast has been observed reporting 0 in/hr during actual
+  // rain — a false negative (missing real rain) is worse for this app than
+  // a false positive, so this errs toward whichever source is willing to
+  // say it's raining.
+  const precipitation = Math.max(current.precipitationIntensity, openMeteo.precipitation);
 
   return {
     temperature_2m: current.temperature,
-    precipitation: current.precipitationIntensity,
+    precipitation,
     cloud_cover: current.cloudCover,
     weather_code: current.weatherCode,
-    daily,
+    daily: openMeteo.daily,
   };
 }
 
