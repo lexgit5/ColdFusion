@@ -119,20 +119,31 @@ function easeCss(t) {
   return bezierY(guess);
 }
 
-// Animates a number from 0 up to `target` over `duration` ms, using the same
-// easing curve as the CSS transitions, starting when `active` flips true.
+// Animates a number from its current displayed value up to `target` over
+// `duration` ms, using the same easing curve as the CSS transitions,
+// starting whenever `active` is true and `target` changes.
 function useAnimatedValue(target, active, duration = 2500) {
   const [display, setDisplay] = useState(0);
+  const displayRef = useRef(0); // mirrors `display` so the effect can read the latest value without depending on it
   const frameRef = useRef(null);
 
   useEffect(() => {
     if (!active) return;
 
+    // Animate from wherever the display currently sits, not from 0 — this
+    // is what lets a metrics refresh glide from the current reading to the
+    // new one instead of resetting to 0 first. Initial reveal still starts
+    // at 0 because displayRef starts at 0 before the first animation runs.
+    const from = displayRef.current;
+    const delta = target - from;
     let start = null;
+
     function tick(timestamp) {
       if (start === null) start = timestamp;
       const progress = Math.min(1, (timestamp - start) / duration);
-      setDisplay(target * easeCss(progress));
+      const value = from + delta * easeCss(progress);
+      displayRef.current = value;
+      setDisplay(value);
       if (progress < 1) frameRef.current = requestAnimationFrame(tick);
     }
 

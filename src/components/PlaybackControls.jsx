@@ -1,6 +1,6 @@
 import { FaPlay, FaPause, FaBackward, FaForward } from "react-icons/fa";
 
-function PlaybackControls({ player, isPaused, hasTrack, onStart }) {
+function PlaybackControls({ player, isPaused, hasTrack, onStart, onNext }) {
   if (!player) {
     return null;
   }
@@ -14,7 +14,12 @@ function PlaybackControls({ player, isPaused, hasTrack, onStart }) {
   }
 
   function handleNext() {
-    player.nextTrack();
+    // Delegates to App.jsx's onNext, which decides whether to skip to an
+    // already-queued track (normal Spotify skip) or, if nothing's queued
+    // yet for the current song, pick and play a fresh track from current
+    // conditions directly — rather than always calling player.nextTrack(),
+    // which does nothing useful when the queue is empty.
+    onNext();
   }
 
   function handlePrevious() {

@@ -1,15 +1,36 @@
 import { getPlaylistTracks } from './spotifyApi';
 import { PLAYLIST_IDS } from './playlists';
 
+// Caches each category's playlist tracks for TRACKLIST_CACHE_MS, so calling
+// fetchTracklists once per song (as App.jsx now does — once on Start, then
+// again every time a song hits 1 minute left) doesn't hit Spotify's API for
+// a full playlist re-fetch every single time. A playlist's contents aren't
+// changing minute-to-minute, so a cache this long is safe; it's really just
+// here to eventually pick up edits made to the source playlists without
+// requiring a page reload.
+const TRACKLIST_CACHE_MS = 60 * 60 * 1000;
+const tracklistCache = {}; // { [category]: { tracks, fetchedAt } }
+
 async function fetchTracklists(weights, token) {
   const categories = Object.keys(weights).filter((cat) => weights[cat] > 0);
   const tracklists = {};
+
   for (const category of categories) {
     const playlistId = PLAYLIST_IDS[category];
-    if (playlistId) {
-      tracklists[category] = await getPlaylistTracks(playlistId, token);
+    if (!playlistId) continue;
+
+    const cached = tracklistCache[category];
+    const isFresh = cached && (Date.now() - cached.fetchedAt) < TRACKLIST_CACHE_MS;
+
+    if (isFresh) {
+      tracklists[category] = cached.tracks;
+    } else {
+      const tracks = await getPlaylistTracks(playlistId, token);
+      tracklistCache[category] = { tracks, fetchedAt: Date.now() };
+      tracklists[category] = tracks;
     }
   }
+
   return { categories, tracklists };
 }
 

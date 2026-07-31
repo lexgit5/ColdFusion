@@ -21,6 +21,25 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Only trigger the 403-retry loop for Spotify's "not ready yet" error, not
+// for genuine failures — those should surface, not spin forever.
+async function withPremium403Retry(action) {
+  let done = false;
+  while (!done) {
+    try {
+      await action();
+      done = true;
+    } catch (err) {
+      if (err.message.includes("403")) {
+        console.log("Spotify not ready yet. Retrying in 1 second...");
+        await wait(1000);
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // DEBUG: WEATHER OVERRIDES — start
 // Turn weatherData + overrides + now into the same effectiveWeatherData
 // shape used everywhere else. Pulled out so handleApplyOverrides can
@@ -133,6 +152,7 @@ function App() {
         if (state && state.track_window && state.track_window.current_track) {
           const track = state.track_window.current_track;
           setCurrentTrack({
+            uri: track.uri,
             name: track.name,
             artist: track.artists.map((a) => a.name).join(', '),
             albumArt: track.album.images[0]?.url,
@@ -161,6 +181,7 @@ function App() {
       setWeatherStatus("Fetching...");
       const weather = await getWeather(latitude, longitude);
       setWeatherData(weather);
+      console.log('Weather updated (initial):', weather);
       setWeatherStatus("Connected");
     } catch (err) {
       console.error(err);
@@ -172,18 +193,17 @@ function App() {
   // minutes in the background — no geolocation re-prompt, just a fresh
   // getWeather() call with the coords we already have. weatherData feeding
   // into effectiveWeatherData (and everything derived from it — dials, sky
-  // color, blend weights) is already reactive, so this alone keeps the
-  // display current. It does NOT rebuild the live Spotify queue — that only
-  // happens via Start or the debug overrides Apply button, same as before.
+  // color, blend weights, and now the next queued track) is already
+  // reactive, so this alone keeps everything current.
   //
-  // If a refresh fails (network blip, API hiccup), a separate 1-minute
-  // retry loop takes over — trying every minute until one succeeds — rather
-  // than silently waiting out the rest of the 15-minute window on stale
-  // data. Once a retry succeeds, the retry loop stops and the normal
+  // If a refresh fails (network blip, API hiccup), a separate retry loop
+  // takes over — trying every WEATHER_RETRY_INTERVAL_MS until one succeeds
+  // — rather than silently waiting out the rest of the 15-minute window on
+  // stale data. Once a retry succeeds, the retry loop stops and the normal
   // 15-minute interval (which keeps running the whole time) picks back up
   // on its own schedule.
   const WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
-  const WEATHER_RETRY_INTERVAL_MS = 60 * 1000;
+  const WEATHER_RETRY_INTERVAL_MS = 30 * 1000;
   const retryIntervalRef = useRef(null);
 
   useEffect(() => {
@@ -196,10 +216,11 @@ function App() {
         try {
           const weather = await getWeather(coords.latitude, coords.longitude);
           setWeatherData(weather);
+          console.log('Weather updated (retry succeeded):', weather);
           clearInterval(retryIntervalRef.current);
           retryIntervalRef.current = null;
         } catch (err) {
-          console.error('Weather refresh retry failed, trying again in 1 minute:', err);
+          console.error('Weather refresh retry failed, trying again shortly:', err);
         }
       }, WEATHER_RETRY_INTERVAL_MS);
     }
@@ -208,11 +229,12 @@ function App() {
       try {
         const weather = await getWeather(coords.latitude, coords.longitude);
         setWeatherData(weather);
+        console.log('Weather updated (15-min refresh):', weather);
       } catch (err) {
         // Don't clobber weatherStatus/weatherData on a background refresh
         // failure — just log it, keep showing the last good reading, and
         // switch to the faster retry cadence until it recovers.
-        console.error('Background weather refresh failed, switching to 1-minute retries:', err);
+        console.error('Background weather refresh failed, switching to retry cadence:', err);
         startRetryLoop();
       }
     }, WEATHER_REFRESH_INTERVAL_MS);
@@ -235,14 +257,11 @@ function App() {
   const [weatherOverrides, setWeatherOverrides] = useState({});
 
   function handleApplyOverrides(next) {
+    // Nothing else to do here — effectiveWeatherData picks up the new
+    // overrides on the next render, and since the next queued track is
+    // always picked fresh from current conditions (see queueNextTrack),
+    // there's no separate queue to rebuild anymore.
     setWeatherOverrides(next);
-
-    // Only rebuild the live queue if a session is already running — before
-    // Start is pressed there's no player/queue to touch yet.
-    if (!hasStarted || !deviceId || !weatherData) return;
-
-    const nextEffectiveWeatherData = computeEffectiveWeatherData(weatherData, next, now);
-    buildAndQueueTracks(nextEffectiveWeatherData);
   }
 
   function handleRevertOverrides() {
@@ -280,6 +299,13 @@ function App() {
       }
     : null;
 
+  // Kept in a ref alongside the state value so the progress-watching effect
+  // (below) can always read the *latest* weather without needing to list
+  // effectiveWeatherData — which is a brand-new object every render — in
+  // its own dependency array.
+  const effectiveWeatherDataRef = useRef(effectiveWeatherData);
+  effectiveWeatherDataRef.current = effectiveWeatherData;
+
   const [blendWeights, setBlendWeights] = useState(null);
   const [hasStarted, setHasStarted] = useState(false);
 
@@ -311,48 +337,83 @@ function App() {
     });
   }, [showContent]);
 
-  // Recomputes blend weights from the given weather data, fetches fresh
-  // tracklists, and plays/queues 10 tracks. Used both by Start and (via the
-  // debug overrides panel) by Apply, so a mid-session weather change
-  // rebuilds the queue the same way a fresh Start would.
-  async function buildAndQueueTracks(weatherDataForBlend) {
-    const weights = getBlendWeights(weatherDataForBlend);
+  // Picks one track from *current* conditions (whatever effectiveWeatherData
+  // is at call time) and plays it immediately, replacing whatever's playing.
+  // Used only by Start.
+  async function playCurrentConditionsTrack() {
+    const weatherForPick = effectiveWeatherDataRef.current;
+    if (!weatherForPick) return;
+
+    const weights = getBlendWeights(weatherForPick);
     setBlendWeights(weights);
 
     const { categories, tracklists } = await fetchTracklists(weights, accessToken);
+    const track = pickTrack(weights, categories, tracklists);
+    if (!track) return;
 
-    for (let i = 0; i < 10; i++) {
-      const track = pickTrack(weights, categories, tracklists);
-      if (!track) continue;
-
-      let queued = false;
-
-      while (!queued) {
-        try {
-          if (i === 0) {
-            await playTrack(deviceId, accessToken, track.uri);
-          } else {
-            await queueTrack(deviceId, accessToken, track.uri);
-          }
-
-          queued = true;
-        } catch (err) {
-          // Retry only if it's the Spotify Premium 403
-          if (err.message.includes("403")) {
-            console.log("Spotify not ready yet. Retrying in 1 second...");
-            await wait(1000);
-          } else {
-            // Unknown error - stop the whole process
-            throw err;
-          }
-        }
-      }
-
-      // Keep your spacing between queued songs
-      await wait(1000);
-
-    }
+    await withPremium403Retry(() => playTrack(deviceId, accessToken, track.uri));
   }
+
+  // Picks one track from *current* conditions and adds it to the queue —
+  // deliberately independent of whatever weather was in effect when the
+  // currently-playing song was chosen. Called once per song, when that
+  // song hits 1 minute left (see the progress-watching effect below).
+  // Returns true/false so the caller can tell whether it actually succeeded
+  // — a failure here (rate limit, empty playlist, network blip, etc.)
+  // shouldn't be treated as "handled" for this song.
+  async function queueNextTrack() {
+    const weatherForPick = effectiveWeatherDataRef.current;
+    if (!weatherForPick) return false;
+
+    const weights = getBlendWeights(weatherForPick);
+    setBlendWeights(weights);
+
+    const { categories, tracklists } = await fetchTracklists(weights, accessToken);
+    const track = pickTrack(weights, categories, tracklists);
+    if (!track) return false;
+
+    await withPremium403Retry(() => queueTrack(deviceId, accessToken, track.uri));
+    return true;
+  }
+
+  // Watches playback progress and queues exactly one track per song, the
+  // moment that song has 60 seconds or less left. queuedForUriRef tracks
+  // which currently-playing track we've already *successfully* queued
+  // behind — it's only set once queueNextTrack() actually resolves, so a
+  // failure (rate limit, empty playlist, network blip — anything other than
+  // Spotify's 403 "not ready yet", which is already retried internally)
+  // leaves the ref untouched and the effect gets another shot at it on the
+  // next progress tick, instead of silently giving up on that song's queue
+  // for good. The ref resets naturally once currentTrack.uri changes (i.e.
+  // the next song actually starts playing).
+  const queuedForUriRef = useRef(null);
+  const queueingRef = useRef(false); // guards against overlapping attempts while one is already in flight
+  const ONE_MINUTE_MS = 60 * 1000;
+
+  useEffect(() => {
+    if (!hasStarted || isPaused || !currentTrack || !progress.duration) return;
+
+    const remaining = progress.duration - progress.position;
+    if (remaining > ONE_MINUTE_MS) return;
+    if (queuedForUriRef.current === currentTrack.uri) return; // already queued behind this song
+    if (queueingRef.current) return; // an attempt is already in flight for this tick
+
+    const trackUriAtAttemptTime = currentTrack.uri;
+    queueingRef.current = true;
+
+    queueNextTrack()
+      .then((succeeded) => {
+        if (succeeded) {
+          queuedForUriRef.current = trackUriAtAttemptTime;
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to queue next track, will retry:', err);
+      })
+      .finally(() => {
+        queueingRef.current = false;
+      });
+  }, [progress, hasStarted, isPaused, currentTrack]);
 
   async function handleStart() {
     if (!effectiveWeatherData || !deviceId) {
@@ -361,8 +422,31 @@ function App() {
     }
 
     setHasStarted(true); // triggers the headline, dials, and risers to fade/animate in
+    queuedForUriRef.current = null; // fresh session, nothing queued yet
 
-    await buildAndQueueTracks(effectiveWeatherData);
+    await playCurrentConditionsTrack();
+  }
+
+  // Most of a song's runtime, nothing is queued (queueing only happens once
+  // a song has 60 seconds or less left — see the progress-watching effect
+  // above), so Spotify's own skip-to-next has nothing to skip to for most
+  // of the session. If something HAS already been successfully queued for
+  // the current song (queuedForUriRef matches it), defer to Spotify's
+  // normal skip. Otherwise, skip by picking and playing a fresh track from
+  // current conditions directly — the same thing Start does — so the
+  // button always does something sensible regardless of where in the song
+  // it's pressed.
+  async function handleSkip() {
+    if (!player) return;
+
+    const somethingIsQueued = currentTrack && queuedForUriRef.current === currentTrack.uri;
+
+    if (somethingIsQueued) {
+      player.nextTrack();
+    } else {
+      queuedForUriRef.current = null; // the track we're skipping away from no longer matters
+      await playCurrentConditionsTrack();
+    }
   }
 
   // Setup is "done" once both auth and weather are connected
@@ -456,6 +540,7 @@ function App() {
                 isPaused={isPaused}
                 hasTrack={!!currentTrack}
                 onStart={handleStart}
+                onNext={handleSkip}
               />
             </div>
 
