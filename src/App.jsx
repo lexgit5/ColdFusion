@@ -17,6 +17,8 @@ import WeatherOverrides from './components/WeatherOverrides'
 
 import './App.css'
 
+const DEBUG = import.meta.env.VITE_DEBUG_WEATHER === 'false';
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -740,13 +742,15 @@ function App() {
             </div>
 
             {/* DEBUG: WEATHER OVERRIDES — start (delete this block to remove the panel) */}
-            <WeatherOverrides
-              weatherData={weatherData}
-              overrides={weatherOverrides}
-              blendWeights={getBlendWeights(effectiveWeatherData)}
-              onApply={handleApplyOverrides}
-              onRevert={handleRevertOverrides}
-            />
+            {DEBUG && (
+              <WeatherOverrides
+                weatherData={weatherData}
+                overrides={weatherOverrides}
+                blendWeights={getBlendWeights(effectiveWeatherData)}
+                onApply={handleApplyOverrides}
+                onRevert={handleRevertOverrides}
+              />
+            )}
             {/* DEBUG: WEATHER OVERRIDES — end */}
           </div>
         )}
