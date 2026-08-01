@@ -296,4 +296,25 @@ function getDayFraction(daily, now = new Date()) {
     : smoothstep(-halfWindow, halfWindow, sunsetTime - now);   // ramps day(1) -> night(0) across sunset
 }
 
-export { getSkyColor, getIsDay, getDayFraction, applyCloudCover, applyPrecipitation, hexToRgb, rgbToHex, mix };
+// Picks a readable text color (near-white or near-black) against a given
+// background hex. Uses WCAG-style relative luminance rather than raw HSL
+// lightness, since perceived brightness weights green much more heavily
+// than red or blue — a pure blue and a pure green at the same HSL lightness
+// don't read as equally bright, but this does account for that.
+// Returns { hex, rgb } — rgb as an "r, g, b" string, handy for building an
+// rgba() with a separate opacity for secondary text.
+function getContrastingTextColor(hex) {
+  const { r, g, b } = hexToRgb(hex);
+
+  const toLinear = (c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const luminance = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+
+  return luminance > 0.20
+    ? { hex: '#1B212C', rgb: '27, 31, 58' }     // deep indigo-navy (matches the dusk/night stops), for light backgrounds
+    : { hex: '#d1dcff', rgb: '228, 232, 245' }; // soft periwinkle-white, for dark backgrounds
+}
+
+export { getSkyColor, getIsDay, getDayFraction, applyCloudCover, applyPrecipitation, hexToRgb, rgbToHex, mix, getContrastingTextColor };

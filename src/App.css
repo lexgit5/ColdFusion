@@ -15,6 +15,16 @@
   --font-mono: 'IBM Plex Mono', monospace;
 
   --sky-color: #0B0E14; /* updated live via inline style from getSkyColor() */
+
+  /* Readable text color for content sitting directly on --sky-color (the
+     weather headline), updated live via inline style alongside --sky-color
+     from getContrastingTextColor(). Falls back to --text-primary before
+     App.jsx has computed a value. --headline-color-rgb is the same color
+     as an "r, g, b" triplet, for building the shadow below and any rgba()
+     use (e.g. a lower-opacity secondary line) without a second color to
+     keep in sync. */
+  --headline-color: var(--text-primary);
+  --headline-color-rgb: 201, 211, 220;
 }
 
 * {
@@ -90,7 +100,16 @@ body {
   padding-bottom: 12px;
   margin: 4px 0; /* was 0 — the space freed from sky-background's padding */
   opacity: 0;
-  transition: opacity 2.5s ease, font-size 0.3s ease, margin-bottom 0.3s ease;
+  /* Sits directly on the sky background rather than a fixed panel surface,
+     so its color tracks --headline-color (computed live from the sky
+     color's luminance) instead of the fixed --text-primary panels use.
+     The shadow is built from the SAME color at low alpha rather than a
+     fixed black/white — a light headline gets a soft dark-toned glow, a
+     dark headline gets a soft light-toned glow, so it reads as depth
+     against any sky color instead of occasionally fighting it. */
+  color: var(--headline-color);
+  text-shadow: 0 2px 16px rgba(var(--headline-color-rgb), 0.35);
+  transition: opacity 2.5s ease, color 2.5s ease, text-shadow 2.5s ease, font-size 0.3s ease, margin-bottom 0.3s ease;
 }
 
 /* Paired with getSizeClass() in WeatherInfo.jsx — shorter labels get the
@@ -121,7 +140,10 @@ body {
   font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 400;
-  color: var(--text-secondary);
+  /* Secondary line on the headline — same live color as the headline
+     itself, just dimmed via alpha instead of a separate fixed color, so it
+     stays legibly related to the headline color no matter what it is. */
+  color: rgba(var(--headline-color-rgb), 0.7);
 }
 
 /* --- Weather controls: dials + risers (signature element) --- */

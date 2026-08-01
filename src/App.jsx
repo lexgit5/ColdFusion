@@ -6,7 +6,7 @@ import { getUserLocation, getWeather } from './utils/weather'
 import { getBlendWeights, getDialMetrics } from './utils/blend'
 import { fetchTracklists, pickTrack } from './utils/queueBuilder'
 import { playTrack, queueTrack } from './utils/spotifyApi'
-import { getSkyColor, getIsDay, getDayFraction, applyCloudCover, applyPrecipitation } from './utils/skyColor'
+import { getSkyColor, getIsDay, getDayFraction, applyCloudCover, applyPrecipitation, getContrastingTextColor } from './utils/skyColor'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
 import PlaybackControls from './components/PlaybackControls'
@@ -415,6 +415,133 @@ function App() {
       });
   }, [progress, hasStarted, isPaused, currentTrack]);
 
+  // --- Previous-track history + local queue -------------------------------
+  //
+  // historyRef holds every track played, in order, so Previous has
+  // something to walk backward through. historyIndexRef points at "where
+  // we currently are" in that list — distinct from historyRef.length - 1
+  // once the user has gone Previous at least once.
+  //
+  // localQueueRef is a front-of-queue for tracks we explicitly want to play
+  // next (e.g. the song bumped back by Previous). It's checked by
+  // handleSkip before anything else, because Spotify's own queue API can
+  // only *append* to the end of the real queue — there's no way to insert
+  // something at the front — so we can't use Spotify's queue for this.
+  //
+  // isNavigatingHistoryRef is a flag set right before we deliberately
+  // change tracks via handlePrevious/handleSkip, so the history-building
+  // effect below can tell "we did this on purpose, don't re-add it to
+  // history" apart from "a genuinely new track started elsewhere."
+  const historyRef = useRef([]);
+  const historyIndexRef = useRef(-1);
+  const localQueueRef = useRef([]);
+  const isNavigatingHistoryRef = useRef(false);
+  const lastSeenUriRef = useRef(null); // last uri actually recorded into history, so repeat onStateChange events for the same song don't duplicate it
+  const navBusyRef = useRef(false); // true while a Previous/Next navigation is in flight, blocks overlapping clicks from corrupting historyIndexRef
+
+  // Builds history as tracks actually play. Runs on every currentTrack
+  // change (Start, weather auto-advance, Spotify's own skip, our own
+  // Previous/Next handling below, etc).
+  useEffect(() => {
+    if (!currentTrack) return;
+
+    if (isNavigatingHistoryRef.current) {
+      // We caused this change ourselves — historyIndexRef was already
+      // updated by the handler that triggered it. Just clear the flag.
+      console.log('[history] skipped re-add (navigating), index stays at', historyIndexRef.current, historyRef.current[historyIndexRef.current]?.name);
+      isNavigatingHistoryRef.current = false;
+      lastSeenUriRef.current = currentTrack.uri;
+      return;
+    }
+
+    // onStateChange fires for lots of things besides an actual track change
+    // (play/pause, seeks, etc), and setCurrentTrack builds a new object
+    // every time even when the song is unchanged — so currentTrack is a
+    // new reference on nearly every state-changed event. Only treat this
+    // as a "new track" when the uri actually differs from the last one we
+    // recorded, otherwise every state-changed tick would duplicate the
+    // current song into history.
+    if (lastSeenUriRef.current === currentTrack.uri) {
+      return;
+    }
+    lastSeenUriRef.current = currentTrack.uri;
+
+    // A genuinely new track started. If we're not at the end of history
+    // (the user had gone Previous and this is a fresh track rather than us
+    // walking forward again), drop anything "ahead" before appending —
+    // same convention as browser back/forward history.
+    const nextIndex = historyIndexRef.current + 1;
+    historyRef.current = [...historyRef.current.slice(0, nextIndex), currentTrack];
+    historyIndexRef.current = nextIndex;
+    console.log('[history] added track:', currentTrack.name, '| index now', historyIndexRef.current, '| full history:', historyRef.current.map(t => t.name));
+  }, [currentTrack]);
+
+  // Plays a specific, already-known track directly — used by Previous/Next
+  // history navigation, as opposed to playCurrentConditionsTrack, which
+  // picks a fresh track from current weather.
+  async function playFromUri(uri) {
+    await withPremium403Retry(() => playTrack(deviceId, accessToken, uri));
+  }
+
+  // Plays the song before the current one in history, and puts the song
+  // we're leaving at the front of the local queue so a subsequent Next
+  // picks it back up. E.g. listening to song 3, hit Previous: song 2
+  // plays, song 3 goes into the local queue. Hit Previous again: song 1
+  // plays, local queue becomes [song 2, song 3].
+  async function handlePrevious() {
+    console.log('[previous] handlePrevious called. index:', historyIndexRef.current, 'history length:', historyRef.current.length);
+
+    if (!player) {
+      console.log('[previous] bailing: no player');
+      return;
+    }
+    if (navBusyRef.current) {
+      console.log('[previous] bailing: navigation already in flight');
+      return;
+    }
+
+    // Anchor historyIndexRef to what's actually playing before trusting it —
+    // overlapping/out-of-order state-changed events can leave it pointing
+    // somewhere stale, and blindly trusting it caused crashes.
+    if (currentTrack) {
+      const actualIndex = historyRef.current.findIndex((t) => t.uri === currentTrack.uri);
+      if (actualIndex !== -1 && actualIndex !== historyIndexRef.current) {
+        console.log('[previous] resyncing index from', historyIndexRef.current, 'to', actualIndex, '(actual current track:', currentTrack.name, ')');
+        historyIndexRef.current = actualIndex;
+      }
+    }
+
+    if (historyIndexRef.current <= 0) {
+      console.log('[previous] bailing: nothing before the first song');
+      return; // nothing before the first song
+    }
+
+    const leavingTrack = historyRef.current[historyIndexRef.current];
+    const targetTrack = historyRef.current[historyIndexRef.current - 1];
+
+    if (!leavingTrack || !targetTrack) {
+      console.log('[previous] bailing: history entry missing after resync, index', historyIndexRef.current);
+      return;
+    }
+
+    navBusyRef.current = true;
+    try {
+      console.log('[previous] leaving:', leavingTrack.name, '-> playing:', targetTrack.name);
+
+      localQueueRef.current = [leavingTrack, ...localQueueRef.current];
+      console.log('[previous] local queue now:', localQueueRef.current.map(t => t.name));
+
+      isNavigatingHistoryRef.current = true;
+      historyIndexRef.current -= 1;
+      queuedForUriRef.current = null; // jumping mid-song; let the weather queue logic reconsider this song
+
+      await playFromUri(targetTrack.uri);
+    } finally {
+      navBusyRef.current = false;
+    }
+  }
+  // -------------------------------------------------------------------------
+
   async function handleStart() {
     if (!effectiveWeatherData || !deviceId) {
       console.error('Missing weather data or device — check weather and ensure player is ready first');
@@ -436,8 +563,67 @@ function App() {
   // current conditions directly — the same thing Start does — so the
   // button always does something sensible regardless of where in the song
   // it's pressed.
+  //
+  // Two checks now run first, ahead of that original behavior:
+  //   1) the local queue (songs bumped back by Previous) takes priority
+  //   2) if we're behind the end of history from a Previous press, walk
+  //      forward through history instead of jumping to a fresh weather pick
   async function handleSkip() {
     if (!player) return;
+    if (navBusyRef.current) {
+      console.log('[skip] bailing: navigation already in flight');
+      return;
+    }
+
+    // Same resync as handlePrevious — anchor to what's actually playing
+    // before trusting historyIndexRef.
+    if (currentTrack) {
+      const actualIndex = historyRef.current.findIndex((t) => t.uri === currentTrack.uri);
+      if (actualIndex !== -1 && actualIndex !== historyIndexRef.current) {
+        console.log('[skip] resyncing index from', historyIndexRef.current, 'to', actualIndex, '(actual current track:', currentTrack.name, ')');
+        historyIndexRef.current = actualIndex;
+      }
+    }
+
+    if (localQueueRef.current.length > 0) {
+      const nextTrack = localQueueRef.current[0];
+      if (!nextTrack) {
+        console.log('[skip] bailing: local queue entry missing');
+      } else {
+        navBusyRef.current = true;
+        try {
+          localQueueRef.current = localQueueRef.current.slice(1);
+
+          isNavigatingHistoryRef.current = true;
+          historyIndexRef.current += 1;
+          queuedForUriRef.current = null;
+
+          await playFromUri(nextTrack.uri);
+        } finally {
+          navBusyRef.current = false;
+        }
+        return;
+      }
+    }
+
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      const nextTrack = historyRef.current[historyIndexRef.current + 1];
+      if (!nextTrack) {
+        console.log('[skip] bailing: history entry missing after resync, index', historyIndexRef.current);
+      } else {
+        navBusyRef.current = true;
+        try {
+          isNavigatingHistoryRef.current = true;
+          historyIndexRef.current += 1;
+          queuedForUriRef.current = null;
+
+          await playFromUri(nextTrack.uri);
+        } finally {
+          navBusyRef.current = false;
+        }
+        return;
+      }
+    }
 
     const somethingIsQueued = currentTrack && queuedForUriRef.current === currentTrack.uri;
 
@@ -521,8 +707,16 @@ function App() {
   // its own separate day/night blend.
   const dialMetrics = effectiveWeatherData ? getDialMetrics(effectiveWeatherData, computedSkyColor) : null;
 
+  // Readable text color for content that sits directly on the sky
+  // background (the weather headline) rather than on a panel — panels
+  // always use --text-primary since --panel-surface is fixed, but the sky
+  // color itself shifts continuously through the whole day/weather range,
+  // so headline text needs to track it or it'll lose contrast against
+  // lighter/brighter skies.
+  const headlineTextColor = getContrastingTextColor(skyColor);
+
   return (
-    <div className={`sky-background ${!showContent ? 'sky-background--centered' : ''}`} style={{ '--sky-color': skyColor, backgroundColor: skyColor }}>
+    <div className={`sky-background ${!showContent ? 'sky-background--centered' : ''}`} style={{ '--sky-color': skyColor, backgroundColor: skyColor, '--headline-color': headlineTextColor.hex, '--headline-color-rgb': headlineTextColor.rgb }}>
       <div className="page">
         {showContent && (
           <div className={`content-reveal ${contentRevealed ? 'content-reveal--visible' : ''}`}>
@@ -541,6 +735,7 @@ function App() {
                 hasTrack={!!currentTrack}
                 onStart={handleStart}
                 onNext={handleSkip}
+                onPrevious={handlePrevious}
               />
             </div>
 

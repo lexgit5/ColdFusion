@@ -1,6 +1,6 @@
 import { FaPlay, FaPause, FaBackward, FaForward } from "react-icons/fa";
 
-function PlaybackControls({ player, isPaused, hasTrack, onStart, onNext }) {
+function PlaybackControls({ player, isPaused, hasTrack, onStart, onNext, onPrevious }) {
   if (!player) {
     return null;
   }
@@ -23,7 +23,10 @@ function PlaybackControls({ player, isPaused, hasTrack, onStart, onNext }) {
   }
 
   function handlePrevious() {
-    player.previousTrack();
+    // Delegates to App.jsx's onPrevious, which uses our own play history
+    // (not Spotify's native previousTrack) so it can also re-queue the
+    // song we're leaving, per the app's local queue logic.
+    onPrevious();
   }
 
   return (
