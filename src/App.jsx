@@ -42,23 +42,6 @@ async function withPremium403Retry(action) {
   }
 }
 
-// DEBUG: WEATHER OVERRIDES — start
-// Turn weatherData + overrides + now into the same effectiveWeatherData
-// shape used everywhere else. Pulled out so handleApplyOverrides can
-// compute this with the *new* overrides before state has re-rendered.
-function computeEffectiveWeatherData(weatherData, overrides, now) {
-  if (!weatherData) return null;
-  return {
-    ...weatherData,
-    is_day: getIsDay(weatherData.daily, now) ? 1 : 0,
-    day_fraction: getDayFraction(weatherData.daily, now),
-    ...(overrides.temperature_2m !== undefined && { temperature_2m: overrides.temperature_2m }),
-    ...(overrides.precipitation !== undefined && { precipitation: overrides.precipitation }),
-    ...(overrides.cloud_cover !== undefined && { cloud_cover: overrides.cloud_cover }),
-  };
-}
-// DEBUG: WEATHER OVERRIDES — end
-
 function App() {
   const [spotifyAuthStatus, setSpotifyAuthStatus] = useState("Not connected");
   const [spotifyWebplayStatus, setSpotifyWebplayStatus] = useState("Not connected");
@@ -269,14 +252,38 @@ function App() {
   function handleRevertOverrides() {
     setWeatherOverrides({});
   }
+  // DEBUG: WEATHER OVERRIDES — end
 
   // "Now", for every place below that needs the current moment — either the
-  // real clock, or the override time typed into the debug panel
-  // (datetime-local strings parse as local time via `new Date(...)`).
+  // real clock or the override time typed into the debug panel (datetime-
+  // local strings parse as local time via `new Date(...)`).
+  //
+  // FIX: previously this was computed fresh on every render
+  // (`new Date()` in the render body), which meant getDayFraction/getIsDay
+  // recomputed on every single re-render — including the ~60x/sec renders
+  // driven by the playback-progress rAF loop. Since brightness's target
+  // value depends on day_fraction, that made useAnimatedValue's effect
+  // (keyed on `target`) tear down and restart its animation loop almost
+  // every frame, so the brightness riser never got a chance to visibly
+  // animate off of 0 on load. Anchoring `now` to state that only updates on
+  // a fixed interval (or the override) keeps it stable across the vast
+  // majority of renders, so day_fraction — and therefore the brightness
+  // target — only changes when it actually should.
+  const [clockNow, setClockNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (weatherOverrides.time) return; // override drives `now` instead — see effectiveNow below
+
+    const interval = setInterval(() => {
+      setClockNow(new Date());
+    }, 60000); // once a minute is plenty for a gradient this gradual
+
+    return () => clearInterval(interval);
+  }, [weatherOverrides.time]);
+
   // getSkyColor and getIsDay MUST both receive this same value, or the sky
   // color and the day/night flag could disagree with each other.
-  const now = weatherOverrides.time ? new Date(weatherOverrides.time) : new Date();
-  // DEBUG: WEATHER OVERRIDES — end
+  const now = weatherOverrides.time ? new Date(weatherOverrides.time) : clockNow;
 
   // weatherData with is_day always computed fresh from the current time
   // (real, or overridden — see `now` above) + real sunrise/sunset, rather
@@ -654,29 +661,6 @@ function App() {
     const timer = setTimeout(() => setShowStart(true), 800);
     return () => clearTimeout(timer);
   }, [setupComplete]);
-
-  // Forces a re-render once a minute so getSkyColor()/getIsDay() re-read the
-  // current time and the background (and brightness dial) keep drifting on
-  // their own, even with no other state changes happening. The tick value
-  // itself is never read — only the state update (and resulting re-render)
-  // matters.
-  //
-  // DEBUG: WEATHER OVERRIDES — while a time override is active, this timer
-  // is paused: it exists to nudge the sky forward with the *real* clock,
-  // which would otherwise fight a frozen override time. Delete the
-  // `if (weatherOverrides.time) return;` line (and the dependency below)
-  // when removing the debug panel, restoring the original always-on timer.
-  const [, setClockTick] = useState(0);
-
-  useEffect(() => {
-    if (weatherOverrides.time) return; // DEBUG: WEATHER OVERRIDES
-
-    const interval = setInterval(() => {
-      setClockTick((t) => t + 1);
-    }, 60000); // once a minute is plenty for a gradient this gradual
-
-    return () => clearInterval(interval);
-  }, [weatherOverrides.time]); // DEBUG: WEATHER OVERRIDES — swap back to [] when removing
 
   // Live sky background color, anchored to today's real local sunrise/sunset
   // once weather has been checked; falls back to a fixed-hour gradient before
