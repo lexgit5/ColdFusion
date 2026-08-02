@@ -102,9 +102,9 @@ body {
   font-family: var(--font-display);
   font-weight: 600;
   line-height: 1.1;
-  padding-top: -12px;
+  padding-top: 0px;
   padding-bottom: 12px;
-  margin: 4px 0; /* was 0 — the space freed from sky-background's padding */
+  margin: -12px 0 12px; /* was 0 — the space freed from sky-background's padding */
   opacity: 0;
   /* Sits directly on the sky background rather than a fixed panel surface,
      so its color tracks --headline-color (computed live from the sky
