@@ -3,6 +3,14 @@
 // forwards the request server-side, so it's never subject to CORS at all.
 const SPOTIFY_BASE = '/api/spotify';
 
+// Playlist reads are the one exception: they need to go through the
+// coldfusion-worker (not the pass-through Pages Function above), since the
+// worker swaps in the owner's token server-side. The playlists live on the
+// owner's account and are private — a visitor's own valid Spotify token
+// still 403s against them, since Spotify checks the token's owner against
+// the playlist's owner regardless of who's using the app.
+const WORKER_URL = 'https://coldfusion-worker.acg6810.workers.dev';
+
 async function playTrack(deviceId, token, trackUri) {
   const response = await fetch(`${SPOTIFY_BASE}/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
@@ -39,12 +47,13 @@ async function playPlaylist(deviceId, token, playlistUri) {
   }
 }
 
-async function getPlaylistTracks(playlistId, token) {
-  const response = await fetch(`${SPOTIFY_BASE}/playlists/${playlistId}/items`, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
-  });
+// Fetches a playlist's tracks via the Worker (see WORKER_URL above), which
+// uses the owner's token — NOT the visitor's own token — since these
+// playlists are private and live on the owner's account. No Authorization
+// header is sent here on purpose; the Worker ignores the caller's identity
+// for this endpoint and always fetches as the owner.
+async function getPlaylistTracks(playlistId) {
+  const response = await fetch(`${WORKER_URL}/api/playlists/${playlistId}/items`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch playlist tracks: ${response.status}`);
