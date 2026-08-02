@@ -5,7 +5,7 @@ import { initializePlayer } from './utils/spotifyPlayer'
 import { getUserLocation, getWeather } from './utils/weather'
 import { getBlendWeights, getDialMetrics } from './utils/blend'
 import { fetchTracklists, pickTrack } from './utils/queueBuilder'
-import { playTrack, queueTrack } from './utils/spotifyApi'
+import { playTrack } from './utils/spotifyApi'
 import { getSkyColor, getIsDay, getDayFraction, applyCloudCover, applyPrecipitation, getContrastingTextColor } from './utils/skyColor'
 import WeatherInfo from './components/WeatherInfo'
 import NowPlaying from './components/NowPlaying'
@@ -83,6 +83,11 @@ function App() {
   // updates every second on its own. progressRef holds the last known
   // position/duration plus when we got it; a separate interval below
   // estimates "now" by extrapolating from that snapshot while playing.
+  //
+  // Still kept purely for the NowPlaying progress bar display — the
+  // automatic "queue next track when <60s left" behavior that used to also
+  // depend on this now lives entirely in the Worker (server-side cron),
+  // so this state is display-only from here on.
   const [progress, setProgress] = useState({ position: 0, duration: 0 });
   const progressRef = useRef({ position: 0, duration: 0, updatedAt: Date.now(), paused: true });
 
@@ -174,19 +179,11 @@ function App() {
     }
   }
 
-  // Keep weather current: once we have a location, re-fetch every 15
-  // minutes in the background — no geolocation re-prompt, just a fresh
-  // getWeather() call with the coords we already have. weatherData feeding
-  // into effectiveWeatherData (and everything derived from it — dials, sky
-  // color, blend weights, and now the next queued track) is already
-  // reactive, so this alone keeps everything current.
-  //
-  // If a refresh fails (network blip, API hiccup), a separate retry loop
-  // takes over — trying every WEATHER_RETRY_INTERVAL_MS until one succeeds
-  // — rather than silently waiting out the rest of the 15-minute window on
-  // stale data. Once a retry succeeds, the retry loop stops and the normal
-  // 15-minute interval (which keeps running the whole time) picks back up
-  // on its own schedule.
+  // Keep weather current for the on-screen dials/headline: once we have a
+  // location, re-fetch every 15 minutes. Purely a display refresh now —
+  // nothing reads this to drive auto-queueing anymore (that's the Worker's
+  // job), so there's no urgency riding on this beyond "keep the dials
+  // looking accurate."
   const WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
   const WEATHER_RETRY_INTERVAL_MS = 30 * 1000;
   const retryIntervalRef = useRef(null);
@@ -216,9 +213,6 @@ function App() {
         setWeatherData(weather);
         console.log('Weather updated (15-min refresh):', weather);
       } catch (err) {
-        // Don't clobber weatherStatus/weatherData on a background refresh
-        // failure — just log it, keep showing the last good reading, and
-        // switch to the faster retry cadence until it recovers.
         console.error('Background weather refresh failed, switching to retry cadence:', err);
         startRetryLoop();
       }
@@ -234,18 +228,9 @@ function App() {
   }, [coords]);
 
   // DEBUG: WEATHER OVERRIDES — start
-  // Manual overrides for temperature / precipitation / cloud cover / current
-  // time, set via the WeatherOverrides panel — lets you test the app against
-  // any weather or time of day without waiting for real conditions to
-  // change. Only fields present in this object override the real value;
-  // everything else always tracks real data.
   const [weatherOverrides, setWeatherOverrides] = useState({});
 
   function handleApplyOverrides(next) {
-    // Nothing else to do here — effectiveWeatherData picks up the new
-    // overrides on the next render, and since the next queued track is
-    // always picked fresh from current conditions (see queueNextTrack),
-    // there's no separate queue to rebuild anymore.
     setWeatherOverrides(next);
   }
 
@@ -254,51 +239,24 @@ function App() {
   }
   // DEBUG: WEATHER OVERRIDES — end
 
-  // "Now", for every place below that needs the current moment — either the
-  // real clock or the override time typed into the debug panel (datetime-
-  // local strings parse as local time via `new Date(...)`).
-  //
-  // FIX: previously this was computed fresh on every render
-  // (`new Date()` in the render body), which meant getDayFraction/getIsDay
-  // recomputed on every single re-render — including the ~60x/sec renders
-  // driven by the playback-progress rAF loop. Since brightness's target
-  // value depends on day_fraction, that made useAnimatedValue's effect
-  // (keyed on `target`) tear down and restart its animation loop almost
-  // every frame, so the brightness riser never got a chance to visibly
-  // animate off of 0 on load. Anchoring `now` to state that only updates on
-  // a fixed interval (or the override) keeps it stable across the vast
-  // majority of renders, so day_fraction — and therefore the brightness
-  // target — only changes when it actually should.
   const [clockNow, setClockNow] = useState(() => new Date());
 
   useEffect(() => {
-    if (weatherOverrides.time) return; // override drives `now` instead — see effectiveNow below
+    if (weatherOverrides.time) return;
 
     const interval = setInterval(() => {
       setClockNow(new Date());
-    }, 60000); // once a minute is plenty for a gradient this gradual
+    }, 60000);
 
     return () => clearInterval(interval);
   }, [weatherOverrides.time]);
 
-  // getSkyColor and getIsDay MUST both receive this same value, or the sky
-  // color and the day/night flag could disagree with each other.
   const now = weatherOverrides.time ? new Date(weatherOverrides.time) : clockNow;
 
-  // weatherData with is_day always computed fresh from the current time
-  // (real, or overridden — see `now` above) + real sunrise/sunset, rather
-  // than trusted from either weather provider (neither Open-Meteo's hybrid
-  // setup nor Tomorrow.io's hand back is_day anymore — this is the one and
-  // only source of truth for it now). Any active weatherOverrides are
-  // layered on top after that.
   const effectiveWeatherData = weatherData
     ? {
         ...weatherData,
         is_day: getIsDay(weatherData.daily, now) ? 1 : 0,
-        // Continuous 0-1 day/night grading by proximity to sunrise/sunset,
-        // used by getBlendWeights instead of the hard is_day split above.
-        // is_day itself is left untouched — getDialMetrics' brightness
-        // riser still reads it directly.
         day_fraction: getDayFraction(weatherData.daily, now),
         // DEBUG: WEATHER OVERRIDES — start
         ...(weatherOverrides.temperature_2m !== undefined && { temperature_2m: weatherOverrides.temperature_2m }),
@@ -308,21 +266,12 @@ function App() {
       }
     : null;
 
-  // Kept in a ref alongside the state value so the progress-watching effect
-  // (below) can always read the *latest* weather without needing to list
-  // effectiveWeatherData — which is a brand-new object every render — in
-  // its own dependency array.
   const effectiveWeatherDataRef = useRef(effectiveWeatherData);
   effectiveWeatherDataRef.current = effectiveWeatherData;
 
   const [blendWeights, setBlendWeights] = useState(null);
   const [hasStarted, setHasStarted] = useState(false);
 
-  // Content (header, weather headline, dials, now playing) waits to fade in
-  // until the landing panel has actually finished fading out — otherwise
-  // both transitions run at once and overlap. 600ms matches
-  // .landing-panel--hidden's own fade-out duration in App.css; keep the two
-  // in sync if that duration ever changes.
   const [showContent, setShowContent] = useState(false);
 
   useEffect(() => {
@@ -331,12 +280,6 @@ function App() {
     return () => clearTimeout(timer);
   }, [hasStarted]);
 
-  // The header/weather/dials/now-playing content mounts fresh the moment
-  // showContent flips true, so there's no earlier "invisible" frame for a
-  // CSS opacity transition to animate from — it would just pop in. This
-  // gives it one: render at opacity 0 first, then flip contentRevealed true
-  // a couple of frames later (same double-rAF pattern WeatherInfo/
-  // WeatherDials use internally), so the fade actually plays.
   const [contentRevealed, setContentRevealed] = useState(false);
 
   useEffect(() => {
@@ -346,9 +289,9 @@ function App() {
     });
   }, [showContent]);
 
-  // Picks one track from *current* conditions (whatever effectiveWeatherData
-  // is at call time) and plays it immediately, replacing whatever's playing.
-  // Used only by Start.
+  // Picks one track from *current* conditions and plays it immediately,
+  // replacing whatever's playing. User-initiated only (Start button) — not
+  // background automation, so no conflict with the Worker's own queueing.
   async function playCurrentConditionsTrack() {
     const weatherForPick = effectiveWeatherDataRef.current;
     if (!weatherForPick) return;
@@ -362,67 +305,6 @@ function App() {
 
     await withPremium403Retry(() => playTrack(deviceId, accessToken, track.uri));
   }
-
-  // Picks one track from *current* conditions and adds it to the queue —
-  // deliberately independent of whatever weather was in effect when the
-  // currently-playing song was chosen. Called once per song, when that
-  // song hits 1 minute left (see the progress-watching effect below).
-  // Returns true/false so the caller can tell whether it actually succeeded
-  // — a failure here (rate limit, empty playlist, network blip, etc.)
-  // shouldn't be treated as "handled" for this song.
-  async function queueNextTrack() {
-    const weatherForPick = effectiveWeatherDataRef.current;
-    if (!weatherForPick) return false;
-
-    const weights = getBlendWeights(weatherForPick);
-    setBlendWeights(weights);
-
-    const { categories, tracklists } = await fetchTracklists(weights, accessToken);
-    const track = pickTrack(weights, categories, tracklists);
-    if (!track) return false;
-
-    await withPremium403Retry(() => queueTrack(deviceId, accessToken, track.uri));
-    return true;
-  }
-
-  // Watches playback progress and queues exactly one track per song, the
-  // moment that song has 60 seconds or less left. queuedForUriRef tracks
-  // which currently-playing track we've already *successfully* queued
-  // behind — it's only set once queueNextTrack() actually resolves, so a
-  // failure (rate limit, empty playlist, network blip — anything other than
-  // Spotify's 403 "not ready yet", which is already retried internally)
-  // leaves the ref untouched and the effect gets another shot at it on the
-  // next progress tick, instead of silently giving up on that song's queue
-  // for good. The ref resets naturally once currentTrack.uri changes (i.e.
-  // the next song actually starts playing).
-  const queuedForUriRef = useRef(null);
-  const queueingRef = useRef(false); // guards against overlapping attempts while one is already in flight
-  const ONE_MINUTE_MS = 60 * 1000;
-
-  useEffect(() => {
-    if (!hasStarted || isPaused || !currentTrack || !progress.duration) return;
-
-    const remaining = progress.duration - progress.position;
-    if (remaining > ONE_MINUTE_MS) return;
-    if (queuedForUriRef.current === currentTrack.uri) return; // already queued behind this song
-    if (queueingRef.current) return; // an attempt is already in flight for this tick
-
-    const trackUriAtAttemptTime = currentTrack.uri;
-    queueingRef.current = true;
-
-    queueNextTrack()
-      .then((succeeded) => {
-        if (succeeded) {
-          queuedForUriRef.current = trackUriAtAttemptTime;
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to queue next track, will retry:', err);
-      })
-      .finally(() => {
-        queueingRef.current = false;
-      });
-  }, [progress, hasStarted, isPaused, currentTrack]);
 
   // --- Previous-track history + local queue -------------------------------
   //
@@ -440,109 +322,62 @@ function App() {
   // isNavigatingHistoryRef is a flag set right before we deliberately
   // change tracks via handlePrevious/handleSkip, so the history-building
   // effect below can tell "we did this on purpose, don't re-add it to
-  // history" apart from "a genuinely new track started elsewhere."
+  // history" apart from "a genuinely new track started elsewhere" (e.g. a
+  // track the Worker queued and Spotify auto-advanced into).
   const historyRef = useRef([]);
   const historyIndexRef = useRef(-1);
   const localQueueRef = useRef([]);
   const isNavigatingHistoryRef = useRef(false);
-  const lastSeenUriRef = useRef(null); // last uri actually recorded into history, so repeat onStateChange events for the same song don't duplicate it
-  const navBusyRef = useRef(false); // true while a Previous/Next navigation is in flight, blocks overlapping clicks from corrupting historyIndexRef
+  const lastSeenUriRef = useRef(null);
+  const navBusyRef = useRef(false);
 
-  // Builds history as tracks actually play. Runs on every currentTrack
-  // change (Start, weather auto-advance, Spotify's own skip, our own
-  // Previous/Next handling below, etc).
   useEffect(() => {
     if (!currentTrack) return;
 
     if (isNavigatingHistoryRef.current) {
-      // We caused this change ourselves — historyIndexRef was already
-      // updated by the handler that triggered it. Just clear the flag.
-      console.log('[history] skipped re-add (navigating), index stays at', historyIndexRef.current, historyRef.current[historyIndexRef.current]?.name);
       isNavigatingHistoryRef.current = false;
       lastSeenUriRef.current = currentTrack.uri;
       return;
     }
 
-    // onStateChange fires for lots of things besides an actual track change
-    // (play/pause, seeks, etc), and setCurrentTrack builds a new object
-    // every time even when the song is unchanged — so currentTrack is a
-    // new reference on nearly every state-changed event. Only treat this
-    // as a "new track" when the uri actually differs from the last one we
-    // recorded, otherwise every state-changed tick would duplicate the
-    // current song into history.
     if (lastSeenUriRef.current === currentTrack.uri) {
       return;
     }
     lastSeenUriRef.current = currentTrack.uri;
 
-    // A genuinely new track started. If we're not at the end of history
-    // (the user had gone Previous and this is a fresh track rather than us
-    // walking forward again), drop anything "ahead" before appending —
-    // same convention as browser back/forward history.
     const nextIndex = historyIndexRef.current + 1;
     historyRef.current = [...historyRef.current.slice(0, nextIndex), currentTrack];
     historyIndexRef.current = nextIndex;
-    console.log('[history] added track:', currentTrack.name, '| index now', historyIndexRef.current, '| full history:', historyRef.current.map(t => t.name));
   }, [currentTrack]);
 
-  // Plays a specific, already-known track directly — used by Previous/Next
-  // history navigation, as opposed to playCurrentConditionsTrack, which
-  // picks a fresh track from current weather.
   async function playFromUri(uri) {
     await withPremium403Retry(() => playTrack(deviceId, accessToken, uri));
   }
 
-  // Plays the song before the current one in history, and puts the song
-  // we're leaving at the front of the local queue so a subsequent Next
-  // picks it back up. E.g. listening to song 3, hit Previous: song 2
-  // plays, song 3 goes into the local queue. Hit Previous again: song 1
-  // plays, local queue becomes [song 2, song 3].
   async function handlePrevious() {
-    console.log('[previous] handlePrevious called. index:', historyIndexRef.current, 'history length:', historyRef.current.length);
+    if (!player) return;
+    if (navBusyRef.current) return;
 
-    if (!player) {
-      console.log('[previous] bailing: no player');
-      return;
-    }
-    if (navBusyRef.current) {
-      console.log('[previous] bailing: navigation already in flight');
-      return;
-    }
-
-    // Anchor historyIndexRef to what's actually playing before trusting it —
-    // overlapping/out-of-order state-changed events can leave it pointing
-    // somewhere stale, and blindly trusting it caused crashes.
     if (currentTrack) {
       const actualIndex = historyRef.current.findIndex((t) => t.uri === currentTrack.uri);
       if (actualIndex !== -1 && actualIndex !== historyIndexRef.current) {
-        console.log('[previous] resyncing index from', historyIndexRef.current, 'to', actualIndex, '(actual current track:', currentTrack.name, ')');
         historyIndexRef.current = actualIndex;
       }
     }
 
-    if (historyIndexRef.current <= 0) {
-      console.log('[previous] bailing: nothing before the first song');
-      return; // nothing before the first song
-    }
+    if (historyIndexRef.current <= 0) return;
 
     const leavingTrack = historyRef.current[historyIndexRef.current];
     const targetTrack = historyRef.current[historyIndexRef.current - 1];
 
-    if (!leavingTrack || !targetTrack) {
-      console.log('[previous] bailing: history entry missing after resync, index', historyIndexRef.current);
-      return;
-    }
+    if (!leavingTrack || !targetTrack) return;
 
     navBusyRef.current = true;
     try {
-      console.log('[previous] leaving:', leavingTrack.name, '-> playing:', targetTrack.name);
-
       localQueueRef.current = [leavingTrack, ...localQueueRef.current];
-      console.log('[previous] local queue now:', localQueueRef.current.map(t => t.name));
 
       isNavigatingHistoryRef.current = true;
       historyIndexRef.current -= 1;
-      queuedForUriRef.current = null; // jumping mid-song; let the weather queue logic reconsider this song
 
       await playFromUri(targetTrack.uri);
     } finally {
@@ -557,56 +392,38 @@ function App() {
       return;
     }
 
-    setHasStarted(true); // triggers the headline, dials, and risers to fade/animate in
-    queuedForUriRef.current = null; // fresh session, nothing queued yet
-
+    setHasStarted(true);
     await playCurrentConditionsTrack();
   }
 
-  // Most of a song's runtime, nothing is queued (queueing only happens once
-  // a song has 60 seconds or less left — see the progress-watching effect
-  // above), so Spotify's own skip-to-next has nothing to skip to for most
-  // of the session. If something HAS already been successfully queued for
-  // the current song (queuedForUriRef matches it), defer to Spotify's
-  // normal skip. Otherwise, skip by picking and playing a fresh track from
-  // current conditions directly — the same thing Start does — so the
-  // button always does something sensible regardless of where in the song
-  // it's pressed.
-  //
-  // Two checks now run first, ahead of that original behavior:
-  //   1) the local queue (songs bumped back by Previous) takes priority
-  //   2) if we're behind the end of history from a Previous press, walk
-  //      forward through history instead of jumping to a fresh weather pick
+  // Skip priority, in order:
+  //   1) the local queue (a song bumped back by Previous) — Spotify's own
+  //      queue API can only append, so this has to be handled client-side
+  //   2) walking forward through history, if Previous had moved us behind
+  //      the end of it
+  //   3) otherwise, defer entirely to Spotify's native skip — whatever's
+  //      next in Spotify's real queue (most likely something the Worker
+  //      queued) plays. No more client-side "queue a fresh weather track"
+  //      fallback here — that decision belongs to the Worker now.
   async function handleSkip() {
     if (!player) return;
-    if (navBusyRef.current) {
-      console.log('[skip] bailing: navigation already in flight');
-      return;
-    }
+    if (navBusyRef.current) return;
 
-    // Same resync as handlePrevious — anchor to what's actually playing
-    // before trusting historyIndexRef.
     if (currentTrack) {
       const actualIndex = historyRef.current.findIndex((t) => t.uri === currentTrack.uri);
       if (actualIndex !== -1 && actualIndex !== historyIndexRef.current) {
-        console.log('[skip] resyncing index from', historyIndexRef.current, 'to', actualIndex, '(actual current track:', currentTrack.name, ')');
         historyIndexRef.current = actualIndex;
       }
     }
 
     if (localQueueRef.current.length > 0) {
       const nextTrack = localQueueRef.current[0];
-      if (!nextTrack) {
-        console.log('[skip] bailing: local queue entry missing');
-      } else {
+      if (nextTrack) {
         navBusyRef.current = true;
         try {
           localQueueRef.current = localQueueRef.current.slice(1);
-
           isNavigatingHistoryRef.current = true;
           historyIndexRef.current += 1;
-          queuedForUriRef.current = null;
-
           await playFromUri(nextTrack.uri);
         } finally {
           navBusyRef.current = false;
@@ -617,15 +434,11 @@ function App() {
 
     if (historyIndexRef.current < historyRef.current.length - 1) {
       const nextTrack = historyRef.current[historyIndexRef.current + 1];
-      if (!nextTrack) {
-        console.log('[skip] bailing: history entry missing after resync, index', historyIndexRef.current);
-      } else {
+      if (nextTrack) {
         navBusyRef.current = true;
         try {
           isNavigatingHistoryRef.current = true;
           historyIndexRef.current += 1;
-          queuedForUriRef.current = null;
-
           await playFromUri(nextTrack.uri);
         } finally {
           navBusyRef.current = false;
@@ -634,23 +447,11 @@ function App() {
       }
     }
 
-    const somethingIsQueued = currentTrack && queuedForUriRef.current === currentTrack.uri;
-
-    if (somethingIsQueued) {
-      player.nextTrack();
-    } else {
-      queuedForUriRef.current = null; // the track we're skipping away from no longer matters
-      await playCurrentConditionsTrack();
-    }
+    await playCurrentConditionsTrack();
   }
 
-  // Setup is "done" once both auth and weather are connected
   const setupComplete = spotifyAuthStatus === "Connected" && weatherStatus === "Connected";
 
-  // The Start button waits to fade in until landing-setup has actually
-  // finished fading out — otherwise the two crossfade instead of a clean
-  // fade-out-then-fade-in. 800ms matches .landing-setup's own opacity
-  // transition duration in App.css; keep the two in sync if that changes.
   const [showStart, setShowStart] = useState(false);
 
   useEffect(() => {
@@ -662,43 +463,19 @@ function App() {
     return () => clearTimeout(timer);
   }, [setupComplete]);
 
-  // Live sky background color, anchored to today's real local sunrise/sunset
-  // once weather has been checked; falls back to a fixed-hour gradient before
-  // that. Then desaturated toward grey based on cloud cover — a color that's
-  // already near-grey (deep midnight) barely changes no matter how overcast
-  // it is, so the effect naturally fades out at night on its own.
   const baseSkyColor = getSkyColor(weatherData?.daily, now);
   const cloudCoverFraction = effectiveWeatherData ? effectiveWeatherData.cloud_cover / 100 : 0;
-  // Same 0-1 intensity scale as the precipitation dial in blend.js (min(precipitation / 5, 1))
   const precipitationFraction = effectiveWeatherData ? Math.min(effectiveWeatherData.precipitation / 5, 1) : 0;
   const computedSkyColor = applyPrecipitation(
     applyCloudCover(baseSkyColor, cloudCoverFraction),
     precipitationFraction
   );
 
-  // Stays on the original default background through the whole landing
-  // page — the real weather-based color only takes over once showContent
-  // flips true (i.e. after the landing panel has finished fading out), so
-  // the background change happens alongside the content fade-in rather than
-  // racing the landing panel's own fade-out. The existing 2.5s CSS
-  // transition on background-color animates that swap smoothly.
   const DEFAULT_SKY_COLOR = '#0B0E14';
   const skyColor = showContent ? computedSkyColor : DEFAULT_SKY_COLOR;
 
-  // Dial/riser metrics, computed from (is_day-corrected, override-applied)
-  // weather data — updates as soon as weather is checked, independent of
-  // whether a queue has been built yet. computedSkyColor is passed through
-  // so the brightness riser's color always matches the real sky background
-  // (cloud desaturation, precipitation darkening, and all) instead of using
-  // its own separate day/night blend.
   const dialMetrics = effectiveWeatherData ? getDialMetrics(effectiveWeatherData, computedSkyColor) : null;
 
-  // Readable text color for content that sits directly on the sky
-  // background (the weather headline) rather than on a panel — panels
-  // always use --text-primary since --panel-surface is fixed, but the sky
-  // color itself shifts continuously through the whole day/weather range,
-  // so headline text needs to track it or it'll lose contrast against
-  // lighter/brighter skies.
   const headlineTextColor = getContrastingTextColor(skyColor);
 
   return (
