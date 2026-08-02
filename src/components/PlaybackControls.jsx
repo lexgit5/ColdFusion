@@ -1,16 +1,12 @@
 import { FaPlay, FaPause, FaBackward, FaForward } from "react-icons/fa";
 
-function PlaybackControls({ player, isPaused, hasTrack, onStart, onNext, onPrevious }) {
+function PlaybackControls({ player, isPaused, hasTrack, onNext, onPrevious }) {
   if (!player) {
     return null;
   }
 
   function handlePlayPause() {
-    if (!hasTrack) {
-      onStart();
-    } else {
-      player.togglePlay();
-    }
+    player.togglePlay();
   }
 
   function handleNext() {
@@ -35,9 +31,9 @@ function PlaybackControls({ player, isPaused, hasTrack, onStart, onNext, onPrevi
       <button 
         onClick={handlePlayPause}
         className="play-pause" 
-        aria-label={!hasTrack ? 'Start' : isPaused ? 'Play' : 'Pause'} 
+        aria-label={isPaused ? 'Play' : 'Pause'} 
       >
-        {!hasTrack ? <FaPlay /> : isPaused ? <FaPlay className="play-icon"  /> : <FaPause className="pause-icon"  />}
+        {isPaused ? <FaPlay className="play-icon" /> : <FaPause className="pause-icon" />}
       </button>
       <button onClick={handleNext} aria-label="Next track"><FaForward /></button>
     </div>

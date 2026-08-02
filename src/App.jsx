@@ -19,6 +19,12 @@ import './App.css'
 
 const DEBUG = import.meta.env.VITE_DEBUG_WEATHER === 'false';
 
+// Backend Worker that runs the weather->queue cron and owns the
+// known-users/location KV. Used here only to check whether this Spotify
+// account has already completed setup (Worker login + location share) —
+// if not, we hand off to it, and it redirects back here when done.
+const WORKER_URL = 'https://coldfusion-worker.acg6810.workers.dev';
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -83,11 +89,6 @@ function App() {
   // updates every second on its own. progressRef holds the last known
   // position/duration plus when we got it; a separate interval below
   // estimates "now" by extrapolating from that snapshot while playing.
-  //
-  // Still kept purely for the NowPlaying progress bar display — the
-  // automatic "queue next track when <60s left" behavior that used to also
-  // depend on this now lives entirely in the Worker (server-side cron),
-  // so this state is display-only from here on.
   const [progress, setProgress] = useState({ position: 0, duration: 0 });
   const progressRef = useRef({ position: 0, duration: 0, updatedAt: Date.now(), paused: true });
 
@@ -155,10 +156,47 @@ function App() {
     });
   }, [accessToken]);
 
+  // --- Worker setup check --------------------------------------------------
+  //
+  // Once we have a token, check whether this Spotify account has already
+  // completed the Worker's one-time setup (known user + location saved).
+  // If not, hand off to the Worker's /auth/login, which does both and
+  // redirects back here via ?returnTo when finished. If it's already set
+  // up, skip straight into fetching weather — no manual "Provide Location"
+  // step needed on returning visits.
+  const hasCheckedWorkerStatus = useRef(false);
+
+  useEffect(() => {
+    if (!accessToken || hasCheckedWorkerStatus.current) return;
+    hasCheckedWorkerStatus.current = true;
+
+    (async () => {
+      try {
+        const meRes = await fetch('/api/spotify/me', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!meRes.ok) throw new Error(`Failed to fetch Spotify profile: ${meRes.status}`);
+        const me = await meRes.json();
+
+        const statusRes = await fetch(`${WORKER_URL}/auth/status?userId=${encodeURIComponent(me.id)}`);
+        const status = await statusRes.json();
+
+        if (!status.known || !status.hasLocation) {
+          window.location.href = `${WORKER_URL}/auth/login?returnTo=${encodeURIComponent(window.location.origin)}`;
+          return;
+        }
+
+        // Already fully set up — go straight into weather.
+        await handleCheckWeather();
+      } catch (err) {
+        console.error('Worker status check failed:', err);
+        setWeatherStatus(`Error: ${err.message}`);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
+
   const [weatherData, setWeatherData] = useState(null);
-  // Stored after the first successful geolocation fetch, so the 15-minute
-  // weather refresh below can re-call getWeather() directly without
-  // re-prompting the browser's location permission every time.
   const [coords, setCoords] = useState(null);
 
   async function handleCheckWeather() {
@@ -180,10 +218,7 @@ function App() {
   }
 
   // Keep weather current for the on-screen dials/headline: once we have a
-  // location, re-fetch every 15 minutes. Purely a display refresh now —
-  // nothing reads this to drive auto-queueing anymore (that's the Worker's
-  // job), so there's no urgency riding on this beyond "keep the dials
-  // looking accurate."
+  // location, re-fetch every 15 minutes.
   const WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
   const WEATHER_RETRY_INTERVAL_MS = 30 * 1000;
   const retryIntervalRef = useRef(null);
@@ -192,7 +227,7 @@ function App() {
     if (!coords) return;
 
     function startRetryLoop() {
-      if (retryIntervalRef.current) return; // already retrying, don't stack a second loop
+      if (retryIntervalRef.current) return;
 
       retryIntervalRef.current = setInterval(async () => {
         try {
@@ -290,8 +325,7 @@ function App() {
   }, [showContent]);
 
   // Picks one track from *current* conditions and plays it immediately,
-  // replacing whatever's playing. User-initiated only (Start button) — not
-  // background automation, so no conflict with the Worker's own queueing.
+  // replacing whatever's playing.
   async function playCurrentConditionsTrack() {
     const weatherForPick = effectiveWeatherDataRef.current;
     if (!weatherForPick) return;
@@ -306,24 +340,23 @@ function App() {
     await withPremium403Retry(() => playTrack(deviceId, accessToken, track.uri));
   }
 
+  // --- Auto-start playback --------------------------------------------------
+  //
+  // Replaces the old manual Start button: once weather data is in and the
+  // Web Playback SDK device is ready, kick off playback automatically.
+  const hasAutoStarted = useRef(false);
+
+  useEffect(() => {
+    if (hasAutoStarted.current) return;
+    if (weatherStatus !== "Connected" || !deviceId || !effectiveWeatherData) return;
+
+    hasAutoStarted.current = true;
+    setHasStarted(true);
+    playCurrentConditionsTrack();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weatherStatus, deviceId, effectiveWeatherData]);
+
   // --- Previous-track history + local queue -------------------------------
-  //
-  // historyRef holds every track played, in order, so Previous has
-  // something to walk backward through. historyIndexRef points at "where
-  // we currently are" in that list — distinct from historyRef.length - 1
-  // once the user has gone Previous at least once.
-  //
-  // localQueueRef is a front-of-queue for tracks we explicitly want to play
-  // next (e.g. the song bumped back by Previous). It's checked by
-  // handleSkip before anything else, because Spotify's own queue API can
-  // only *append* to the end of the real queue — there's no way to insert
-  // something at the front — so we can't use Spotify's queue for this.
-  //
-  // isNavigatingHistoryRef is a flag set right before we deliberately
-  // change tracks via handlePrevious/handleSkip, so the history-building
-  // effect below can tell "we did this on purpose, don't re-add it to
-  // history" apart from "a genuinely new track started elsewhere" (e.g. a
-  // track the Worker queued and Spotify auto-advanced into).
   const historyRef = useRef([]);
   const historyIndexRef = useRef(-1);
   const localQueueRef = useRef([]);
@@ -386,25 +419,6 @@ function App() {
   }
   // -------------------------------------------------------------------------
 
-  async function handleStart() {
-    if (!effectiveWeatherData || !deviceId) {
-      console.error('Missing weather data or device — check weather and ensure player is ready first');
-      return;
-    }
-
-    setHasStarted(true);
-    await playCurrentConditionsTrack();
-  }
-
-  // Skip priority, in order:
-  //   1) the local queue (a song bumped back by Previous) — Spotify's own
-  //      queue API can only append, so this has to be handled client-side
-  //   2) walking forward through history, if Previous had moved us behind
-  //      the end of it
-  //   3) otherwise, defer entirely to Spotify's native skip — whatever's
-  //      next in Spotify's real queue (most likely something the Worker
-  //      queued) plays. No more client-side "queue a fresh weather track"
-  //      fallback here — that decision belongs to the Worker now.
   async function handleSkip() {
     if (!player) return;
     if (navBusyRef.current) return;
@@ -450,19 +464,6 @@ function App() {
     await playCurrentConditionsTrack();
   }
 
-  const setupComplete = spotifyAuthStatus === "Connected" && weatherStatus === "Connected";
-
-  const [showStart, setShowStart] = useState(false);
-
-  useEffect(() => {
-    if (!setupComplete) {
-      setShowStart(false);
-      return;
-    }
-    const timer = setTimeout(() => setShowStart(true), 800);
-    return () => clearTimeout(timer);
-  }, [setupComplete]);
-
   const baseSkyColor = getSkyColor(weatherData?.daily, now);
   const cloudCoverFraction = effectiveWeatherData ? effectiveWeatherData.cloud_cover / 100 : 0;
   const precipitationFraction = effectiveWeatherData ? Math.min(effectiveWeatherData.precipitation / 5, 1) : 0;
@@ -496,7 +497,6 @@ function App() {
                 player={player}
                 isPaused={isPaused}
                 hasTrack={!!currentTrack}
-                onStart={handleStart}
                 onNext={handleSkip}
                 onPrevious={handlePrevious}
               />
@@ -517,26 +517,16 @@ function App() {
         )}
 
         {!showContent && (
-          <div className={`panel landing-panel ${hasStarted ? 'landing-panel--hidden' : ''}`}>
+          <div className="panel landing-panel">
             <div className="landing-title">ColdFusion</div>
 
             <div className="landing-toggle">
-              <div className={`landing-setup ${setupComplete ? 'landing-setup--hidden' : ''}`}>
-                <AuthButton connected={spotifyAuthStatus === "Connected"} />
-                <button
-                  className={`setup-button ${weatherStatus === "Connected" ? 'setup-button--connected' : ''}`}
-                  onClick={handleCheckWeather}
-                  disabled={weatherStatus === "Connected"}
-                >
-                  {weatherStatus === "Connected" ? "Location Provided" : "Provide Location"}
-                </button>
-              </div>
-
-              <div className={`landing-start ${showStart ? '' : 'landing-start--hidden'}`}>
-                <button className="start-button" onClick={handleStart}>
-                  Start
-                </button>
-              </div>
+              <AuthButton connected={spotifyAuthStatus === "Connected"} />
+              {spotifyAuthStatus === "Connected" && (
+                <p className="landing-status-text">
+                  {weatherStatus === "Error" ? weatherStatus : "Getting things ready..."}
+                </p>
+              )}
             </div>
           </div>
         )}
