@@ -526,6 +526,17 @@ function App() {
       return;
     }
 
+    // iOS Safari only allows audio to start as the direct, synchronous
+    // result of a user gesture. playCurrentConditionsTrack() below awaits a
+    // network call (fetchTracklists) before actually triggering playback,
+    // which loses that gesture credential by the time playTrack() fires —
+    // silently no-op'ing on iOS specifically. activateElement() must be
+    // called synchronously, before any await, to consume the gesture and
+    // unlock playback for the rest of this session.
+    if (player?.activateElement) {
+      player.activateElement();
+    }
+
     setHasStarted(true); // triggers the headline, dials, and risers to fade/animate in
 
     await playCurrentConditionsTrack();
@@ -621,6 +632,15 @@ function App() {
   // flips true.
   const DEFAULT_SKY_COLOR = '#0B0E14';
   const skyColor = showContent ? computedSkyColor : DEFAULT_SKY_COLOR;
+
+  // body sits outside .sky-background, so it never sees --sky-color's
+  // live inline override (inline custom properties only cascade to
+  // descendants) — without this, body stays stuck on the static default
+  // from :root, visible wherever .sky-background doesn't fully cover the
+  // viewport (e.g. iOS safe-area insets around the notch).
+  useEffect(() => {
+    document.body.style.backgroundColor = skyColor;
+  }, [skyColor]);
 
   const dialMetrics = effectiveWeatherData ? getDialMetrics(effectiveWeatherData, computedSkyColor) : null;
 
