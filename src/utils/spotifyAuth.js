@@ -1,5 +1,5 @@
 const CLIENT_ID = 'c053af2ce092429e87d6ffd4c8f23ba1'; // same one from AuthButton.jsx
-const REDIRECT_URL = 'https://coldfusion.acg6810.workers.dev/callback';
+const REDIRECT_URL = 'https://coldfusion.acg6810.workers.dev';
 const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
 
 async function exchangeCodeForToken(code) {
